@@ -1,6 +1,6 @@
 ---
 name: antigravity-chuanban-context-suite
-description: Deploy, adapt, and verify the integrated Antigravity desktop UI suite on Windows, macOS, or Linux: Chuanban theme patch (with i18n/metrics disabled and high-priority z-index popup stacking) plus streamlined Antigravity ContextViewer (v3.3.4 Chinese i18n, removed 256K/ProxyNoTun/color drawers, 580px capped popup, conservative anti-lag optimizations, pure CDP + dynamic loopback HTTP bridge daemon without modifying app.asar). Use when setting up a new machine, cloning this skill from GitHub, re-applying after Antigravity updates, or troubleshooting missing titlebar meter, i18n, or popup layering.
+description: Deploy, adapt, and verify the integrated Antigravity desktop UI suite on Windows, macOS, or Linux — a Claude-style Antigravity beautification and localization plugin (仿Claude风格的antigravity反重力美化插件): Chuanban theme patch (with i18n/metrics disabled and high-priority z-index popup stacking) plus streamlined Antigravity ContextViewer (v3.3.4 Chinese i18n, removed 256K/ProxyNoTun/color drawers, 580px capped popup, conservative anti-lag optimizations, pure CDP + dynamic loopback HTTP bridge daemon without modifying app.asar). Use when setting up a new machine, cloning this skill from GitHub, re-applying after Antigravity updates, or troubleshooting missing titlebar meter, i18n, or popup layering.
 ---
 
 # Antigravity Chuanban + ContextViewer Suite

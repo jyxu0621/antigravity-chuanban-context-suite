@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-在 Google Antigravity 2.x 中整合 **船板主题美化** 与 **精简版对话上下文监控 + v3.3.4 桌面端汉化**，通过 CDP 与本地回环 HTTP 守护进程注入，不改动官方 `app.asar`，重启、重载窗口或客户端更新后自动重新生效。
+**仿Claude风格的antigravity反重力美化插件**：面向 Google Antigravity 2.x，整合 **船板暖纸主题美化** 与 **精简版对话上下文监控 + v3.3.4 桌面端汉化**，通过 CDP 与本地回环 HTTP 守护进程注入，不改动官方 `app.asar`，重启、重载窗口或客户端更新后自动重新生效。
 
 ---
 

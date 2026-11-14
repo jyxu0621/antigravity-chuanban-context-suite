@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-This skill integrates the **Chuanban theme patch** with a **streamlined Antigravity ContextViewer and v3.3.4 Chinese UI localization** for Google Antigravity 2.x. A pure Chrome DevTools Protocol (CDP) and loopback HTTP daemon injects and updates the UI without modifying Antigravity's official `app.asar`.
+A **Claude-style UI beautification and localization plugin for Google Antigravity 2.x** (仿Claude风格的antigravity反重力美化插件). It integrates the **Chuanban theme patch** with a **streamlined Antigravity ContextViewer and v3.3.4 Chinese UI localization** via a pure Chrome DevTools Protocol (CDP) and loopback HTTP daemon, injecting and updating the UI without modifying Antigravity's official `app.asar`.
 
 ---
 
