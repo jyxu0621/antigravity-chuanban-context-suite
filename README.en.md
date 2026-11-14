@@ -6,6 +6,18 @@ This skill integrates the **Chuanban theme patch** with a **streamlined Antigrav
 
 ---
 
+## Preview
+
+**Toolbar Capsules (Chuanban Theme + Context Meter + Speed + Token Total + CLI):**
+
+![Toolbar Preview](assets/preview-titlebar.png)
+
+| Streamlined Context Panel (`580px` max height; 256K, ProxyNoTun, and color drawer removed) | Token Usage Summary and 52-Week Heatmap |
+| :---: | :---: |
+| ![Context Panel Preview](assets/preview-context-panel.png) | ![Tokens Panel Preview](assets/preview-tokens-panel.png) |
+
+---
+
 ## Upstream Projects and Adaptations
 
 This repository combines and adapts two open-source community projects so they run side by side without UI conflicts or heavy main-thread stalls:
@@ -122,6 +134,9 @@ antigravity-chuanban-context-suite/
 ├── README.en.md                         # English documentation (this file)
 ├── assets/
 │   ├── antigravity-patch-guardian.mjs   # Portable CDP + loopback HTTP bridge daemon
+│   ├── preview-titlebar.png             # Preview: titlebar capsules and Chuanban theme
+│   ├── preview-context-panel.png        # Preview: streamlined conversation context popover
+│   ├── preview-tokens-panel.png         # Preview: token summary and heatmap popover
 │   ├── theme-user-config.json           # Adapted Chuanban user/config.json
 │   └── theme-user-custom.js             # Adapted Chuanban user/custom.js (stacking & WebContentsView sync)
 ├── patches/

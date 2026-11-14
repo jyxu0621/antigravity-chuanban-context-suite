@@ -6,6 +6,18 @@
 
 ---
 
+## 预览 (Preview)
+
+**顶栏胶囊（船板主题 + 上下文进度 / 输出速度 / Token 累计 / CLI 入口）：**
+
+![顶栏胶囊预览](assets/preview-titlebar.png)
+
+| 精简版当前会话上下文面板（高度上限 `580px`，已移除 256K / ProxyNoTun / 配色抽屉） | 本机 Token 用量与 52 周热力图面板 |
+| :---: | :---: |
+| ![当前会话上下文面板](assets/preview-context-panel.png) | ![Token 用量统计面板](assets/preview-tokens-panel.png) |
+
+---
+
 ## 上游项目与借鉴说明 (Upstream Projects)
 
 本仓库整合并适配了社区中的两个开源项目：
@@ -122,6 +134,9 @@ antigravity-chuanban-context-suite/
 ├── README.en.md                         # English documentation
 ├── assets/
 │   ├── antigravity-patch-guardian.mjs   # 便携版纯 CDP + 动态回环 HTTP 桥接守护脚本
+│   ├── preview-titlebar.png             # 预览：顶栏胶囊（船板主题 + ContextMeter + CLI）
+│   ├── preview-context-panel.png        # 预览：精简版当前会话上下文面板
+│   ├── preview-tokens-panel.png         # 预览：Token 统计与热力图面板
 │   ├── theme-user-config.json           # 船板适配配置（关闭重叠 i18n 与 metrics）
 │   └── theme-user-custom.js             # 弹窗高优先级 z-index 与原生视图层级适配脚本
 ├── patches/
