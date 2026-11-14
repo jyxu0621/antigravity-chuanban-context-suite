@@ -1,0 +1,1063 @@
+diff --git a/i18n/i18n-runtime.js b/i18n/i18n-runtime.js
+index 20596a1..fdeb390 100644
+--- a/i18n/i18n-runtime.js
++++ b/i18n/i18n-runtime.js
+@@ -86,6 +86,11 @@
+         return cacheAndReturn(normalized, null);
+       }
+ 
++      // 超长纯英文段落（如聊天长文/日志/堆栈）已未命中精确词典，跳过 338 条正则与拆句兜底以防主线程卡顿
++      if (normalized.length > 500) {
++        return cacheAndReturn(normalized, null);
++      }
++
+       for (var i = 0; i < patterns.length; i++) {
+         var p = patterns[i];
+         if (p.regex.test(normalized)) {
+@@ -542,14 +547,26 @@
+   function flushPendingNodes() {
+     rafScheduled = false;
+     if (pendingNodes.length === 0) return;
+-    var batch = pendingNodes.splice(0, 200);
+-    if (pendingNodeSet) {
+-      for (var bIdx = 0; bIdx < batch.length; bIdx++) {
+-        pendingNodeSet.delete(batch[bIdx]);
++    var nowFn = (root.performance && typeof root.performance.now === 'function')
++      ? function () { return root.performance.now(); }
++      : function () { return Date.now(); };
++    var startTime = nowFn();
++    var processed = 0;
++    var batch = [];
++    while (pendingNodes.length > 0 && processed < 200) {
++      var node = pendingNodes.shift();
++      if (pendingNodeSet) pendingNodeSet.delete(node);
++      batch.push(node);
++      processed++;
++      if (batch.length >= 8 || pendingNodes.length === 0 || processed >= 200) {
++        safeTranslateNodes(batch);
++        batch.length = 0;
++        if (pendingNodes.length > 0 && (nowFn() - startTime) >= 8) {
++          break;
++        }
+       }
+     }
+-    safeTranslateNodes(batch);
+-    // 如果还有剩余，安排下一帧处理
++    // 如果还有剩余或本帧预算已用满（~8ms），安排下一帧继续平滑处理
+     if (pendingNodes.length > 0) {
+       scheduleFlush();
+     }
+diff --git a/meter-renderer.js b/meter-renderer.js
+index 91bcef5..50fb968 100644
+--- a/meter-renderer.js
++++ b/meter-renderer.js
+@@ -928,7 +928,7 @@
+     .ag-panel{
+       box-sizing:border-box;
+       position:fixed;top:38px;left:auto;right:16px;z-index:2147483500;
+-      max-width:calc(100vw - 24px);max-height:calc(100vh - 52px);
++      max-width:calc(100vw - 24px);max-height:calc(100vh - 96px);
+       overflow:auto;border:1px solid var(--ag-border-panel);border-radius:10px;
+       background:var(--ag-bg-panel);color:var(--ag-text-primary);box-shadow:var(--ag-shadow-panel);padding:14px;
+       opacity:1;transform:translateY(0);visibility:visible;pointer-events:auto;
+@@ -936,7 +936,7 @@
+       transition:opacity .16s cubic-bezier(0.16,1,0.3,1),transform .16s cubic-bezier(0.16,1,0.3,1),visibility .16s ease;
+       contain:layout paint;
+     }
+-    #panel{width:450px}
++    #panel{width:450px;max-height:min(580px,calc(100vh - 96px))}
+     #panel-tokens{width:730px;transition:width .22s cubic-bezier(0.16,1,0.3,1),left .22s cubic-bezier(0.16,1,0.3,1),max-width .22s cubic-bezier(0.16,1,0.3,1),opacity .16s cubic-bezier(0.16,1,0.3,1),transform .16s cubic-bezier(0.16,1,0.3,1)}
+     #panel-tokens.cost-compact-view{width:400px!important;max-width:calc(100vw - 24px)}
+     .ag-panel[hidden]{display:block!important;opacity:0;transform:translateY(-6px);visibility:hidden;pointer-events:none}
+@@ -1386,7 +1386,6 @@
+           <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8A6 6 0 1 1 8 2M14 2v6h-6"></path></svg>
+           <span id="update-badge-dot-ctx" class="update-badge-dot" style="display:none"></span>
+         </button>
+-        <button id="btn-panel-palette" class="panel-icon-btn" type="button" aria-label="外观与调色设置" title="外观与调色设置">🎨</button>
+         <button id="theme-toggle" class="panel-icon-btn" type="button" aria-label="切换浅色/深色主题" title="当前：跟随IDE（点击切换：浅色 / 深色 / 自动）">🌓</button>
+         <button id="close" class="panel-icon-btn" type="button" aria-label="收起详情">×</button>
+       </div>
+@@ -1438,69 +1437,6 @@
+         <div id="speed-takeaway" class="key-takeaway">等待首次模型输出产生速度统计…</div>
+       </div>
+ 
+-      <!-- 二级交互折叠区: 上下文加长 (解除 256K 限制 / 实验特性) -->
+-      <div class="tech-drawer" id="context-unlock-drawer">
+-        <button id="btn-toggle-unlock" class="drawer-trigger" aria-expanded="false" type="button">
+-          <span class="drawer-trigger-left">
+-            <span>⚡ 上下文加长（解除 256K 限制 / 实验特性）</span>
+-            <span id="unlock-badge" class="key-pill pill-muted" style="margin-left:6px;font-size:10.5px;">读取中…</span>
+-          </span>
+-          <span id="unlock-drawer-arrow" class="drawer-arrow">▼ 展开</span>
+-        </button>
+-        <div id="unlock-drawer-body" class="drawer-body" style="display:none;">
+-          <div class="unlock-panel-content">
+-            <div class="unlock-status-row">
+-              <div class="unlock-status-meta">
+-                <div class="unlock-label">当前后端补丁状态</div>
+-                <div id="unlock-status-desc" class="unlock-desc">正在分析当前 Antigravity 后端二进制…</div>
+-              </div>
+-            </div>
+-
+-            <div class="unlock-notice">
+-              <div class="unlock-notice-title">⚠️ 技术边界与重要说明</div>
+-              <ul class="unlock-notice-list">
+-                <li>本功能为非官方本地技术修补，通过移除 <code>language_server</code> 中的 256,000 封顶截断序列，恢复按模型物理窗口动态分配（如 1M 模型最高 983,040 tokens）。</li>
+-                <li><strong>桌面端差异</strong>：桌面端为独立后端服务架构，仅解除底层压缩硬上限，无 CLI 档位切换菜单；亦无法突破模型服务端支持的最大物理窗口。</li>
+-                <li><strong>更新与账号风险</strong>：官方更新客户端后可能需重新应用；账号风险未知，无法承诺“不会封号”。</li>
+-              </ul>
+-            </div>
+-
+-            <div class="unlock-actions-row">
+-              <button id="btn-apply-unlock" class="unlock-btn unlock-btn-primary" type="button">
+-                <span>⚡ 立即应用加长补丁</span>
+-              </button>
+-              <button id="btn-restore-unlock" class="unlock-btn unlock-btn-secondary" type="button">
+-                <span>🔄 恢复官方原版</span>
+-              </button>
+-              <button id="btn-refresh-unlock" class="unlock-btn unlock-btn-secondary" type="button" title="重新检测状态">
+-                <span>🔄 刷新</span>
+-              </button>
+-            </div>
+-
+-            <div id="unlock-result-box" class="unlock-result-box" style="display:none;">
+-              <div id="unlock-result-text" class="unlock-result-text"></div>
+-            </div>
+-
+-            <dl class="unlock-meta-dl">
+-              <dt>目标后端</dt><dd id="unlock-meta-target">—</dd>
+-              <dt>目标架构</dt><dd id="unlock-meta-arch">—</dd>
+-              <dt>文件哈希 (SHA-256)</dt><dd id="unlock-meta-sha">—</dd>
+-              <dt>原版备份状态</dt><dd id="unlock-meta-backup">—</dd>
+-            </dl>
+-
+-            <div class="unlock-credit-bar">
+-              <div class="unlock-credit-left">
+-                <span class="unlock-credit-lbl">解锁方案来源：</span>
+-                <a id="link-unlock-author" href="https://linux.do/t/topic/3117832" target="_blank" rel="noopener noreferrer" class="unlock-author-link" role="link" tabindex="0" title="点击在系统默认浏览器中打开原作者帖子">原作者帖子 (Linux.do @23375) ↗</a>
+-                <button id="btn-copy-unlock-link" class="unlock-copy-link-btn" type="button" title="复制原作者帖子链接">📋 复制链接</button>
+-              </div>
+-              <span class="unlock-adapter-note">本项目负责 Node.js 原生适配与客户端集成</span>
+-            </div>
+-            <div id="unlock-link-toast" class="unlock-link-toast" style="display:none;" role="status"></div>
+-          </div>
+-        </div>
+-      </div>
+-
+       <!-- 二级交互折叠区: 客户端界面汉化 (AntigravityChinese) -->
+       <div class="tech-drawer" id="chinese-i18n-drawer">
+         <button id="btn-toggle-chinese" class="drawer-trigger" aria-expanded="false" type="button">
+@@ -1531,114 +1467,6 @@
+         </div>
+       </div>
+ 
+-      <!-- 二级交互折叠区: 免 TUN 网络直连 (AntigravityProxyNoTun) -->
+-      <div class="tech-drawer" id="proxy-notun-drawer">
+-        <button id="btn-toggle-proxy" class="drawer-trigger" aria-expanded="false" type="button">
+-          <span class="drawer-trigger-left">
+-            <span>🌐 免 TUN 网络直连（本地代理）</span>
+-            <span id="proxy-badge" class="key-pill pill-muted" style="margin-left:6px;font-size:10.5px;">读取中…</span>
+-          </span>
+-          <span id="proxy-drawer-arrow" class="drawer-arrow">▼ 展开</span>
+-        </button>
+-        <div id="proxy-drawer-body" class="drawer-body" style="display:none;">
+-          <div class="unlock-panel-content">
+-            <div class="unlock-status-row">
+-              <div class="unlock-status-meta">
+-                <div class="unlock-label">代理直连配置与状态</div>
+-                <div id="proxy-status-desc" class="unlock-desc">正在核对代理设置…</div>
+-              </div>
+-            </div>
+-            <div style="display:flex;flex-direction:column;gap:8px;margin:8px 0;">
+-              <label style="font-size:11px;color:var(--ag-text-secondary);display:flex;flex-direction:column;gap:4px;">
+-                <span>本地代理地址 (例如 http://127.0.0.1:7897 或 socks5://...)：</span>
+-                <input id="input-proxy-url" type="text" class="unlock-input" style="padding:4px 8px;font-size:11px;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);color:var(--ag-text-primary);border-radius:4px;" value="http://127.0.0.1:7897" />
+-              </label>
+-              <label style="font-size:11px;color:var(--ag-text-secondary);display:flex;flex-direction:column;gap:4px;">
+-                <span>绕过代理列表 (NO_PROXY)：</span>
+-                <input id="input-proxy-bypass" type="text" class="unlock-input" style="padding:4px 8px;font-size:11px;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);color:var(--ag-text-primary);border-radius:4px;" value="localhost,127.0.0.1,::1,<local>" />
+-              </label>
+-            </div>
+-            <div class="unlock-actions" style="display:flex;gap:8px;">
+-              <button id="btn-test-proxy" class="unlock-btn unlock-btn-secondary" type="button">🔍 测试代理连通性</button>
+-              <button id="btn-toggle-proxy-module" class="unlock-btn unlock-btn-primary" type="button">切换代理直连</button>
+-            </div>
+-            <div id="proxy-test-result" style="font-size:11px;margin-top:6px;display:none;color:var(--ag-text-secondary);"></div>
+-          </div>
+-        </div>
+-      </div>
+-
+-      <!-- 二级交互折叠区 1: 面板背景与指标颜色自定义（就近放置于面板 B 内部） -->
+-      <div class="tech-drawer">
+-        <button id="btn-toggle-colors" class="drawer-trigger" aria-expanded="false" type="button">
+-          <span class="drawer-trigger-left"><span>🎨 指标与背景颜色自定义（默认跟随主题）</span></span>
+-          <span id="color-drawer-arrow" class="drawer-arrow">▼ 展开设置</span>
+-        </button>
+-        <div id="color-drawer-body" class="drawer-body" style="display:none;">
+-          <div class="color-grid">
+-            <div class="color-item" style="grid-column:1 / -1">
+-              <span class="color-item-lbl">面板与菜单统一背景色（0级跟随 / 自定义）</span>
+-              <div class="color-item-ctrls">
+-                <input id="color-panelBg" class="color-picker" type="color" value="#181818" aria-label="面板背景色" />
+-                <button id="swatch-panelBg" class="color-swatch-btn" type="button" data-color-slot="panelBg" data-color-label="面板与菜单背景色" title="点击打开颜色选取器"></button>
+-                <button id="reset-panelBg" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
+-              </div>
+-            </div>
+-            <div class="color-item">
+-              <span class="color-item-lbl">圆环已用部分</span>
+-              <div class="color-item-ctrls">
+-                <input id="color-ringUsed" class="color-picker" type="color" value="#e6e6eb" aria-label="上下文圆环已用部分颜色" />
+-                <button id="swatch-ringUsed" class="color-swatch-btn" type="button" data-color-slot="ringUsed" data-color-label="圆环已用部分" title="点击打开颜色选取器"></button>
+-                <button id="reset-ringUsed" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
+-              </div>
+-            </div>
+-            <div class="color-item">
+-              <span class="color-item-lbl">圆环轨道</span>
+-              <div class="color-item-ctrls">
+-                <input id="color-ringTrack" class="color-picker" type="color" value="#52525b" aria-label="圆环轨道颜色" />
+-                <button id="swatch-ringTrack" class="color-swatch-btn" type="button" data-color-slot="ringTrack" data-color-label="圆环轨道" title="点击打开颜色选取器"></button>
+-                <button id="reset-ringTrack" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
+-              </div>
+-            </div>
+-            <div class="color-item">
+-              <span class="color-item-lbl">上下文用量文字</span>
+-              <div class="color-item-ctrls">
+-                <input id="color-contextText" class="color-picker" type="color" value="#ececef" aria-label="上下文用量文字颜色" />
+-                <button id="swatch-contextText" class="color-swatch-btn" type="button" data-color-slot="contextText" data-color-label="上下文用量文字" title="点击打开颜色选取器"></button>
+-                <button id="reset-contextText" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
+-              </div>
+-            </div>
+-            <div class="color-item">
+-              <span class="color-item-lbl">输出速度</span>
+-              <div class="color-item-ctrls">
+-                <input id="color-speedText" class="color-picker" type="color" value="#38bdf8" aria-label="输出速度颜色" />
+-                <button id="swatch-speedText" class="color-swatch-btn" type="button" data-color-slot="speedText" data-color-label="输出速度" title="点击打开颜色选取器"></button>
+-                <button id="reset-speedText" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
+-              </div>
+-            </div>
+-            <div class="color-item">
+-              <span class="color-item-lbl">累计 token 用量</span>
+-              <div class="color-item-ctrls">
+-                <input id="color-tokenTotal" class="color-picker" type="color" value="#c084fc" aria-label="累计 token 用量颜色" />
+-                <button id="swatch-tokenTotal" class="color-swatch-btn" type="button" data-color-slot="tokenTotal" data-color-label="累计 token 用量" title="点击打开颜色选取器"></button>
+-                <button id="reset-tokenTotal" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
+-              </div>
+-            </div>
+-            <div class="color-item">
+-              <span class="color-item-lbl">其他 token 指标</span>
+-              <div class="color-item-ctrls">
+-                <input id="color-tokenAccent" class="color-picker" type="color" value="#a78bfa" aria-label="其他 token 指标颜色" />
+-                <button id="swatch-tokenAccent" class="color-swatch-btn" type="button" data-color-slot="tokenAccent" data-color-label="其他 token 指标" title="点击打开颜色选取器"></button>
+-                <button id="reset-tokenAccent" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
+-              </div>
+-            </div>
+-          </div>
+-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px">
+-            <span style="font-size:10.5px;color:var(--ag-text-muted)">注：高占用与超限告警色独立保留，不被常态颜色覆盖。</span>
+-            <button id="reset-all-colors" class="color-reset-btn" type="button">全部恢复跟随主题</button>
+-          </div>
+-        </div>
+-      </div>
+-
+       <!-- 二级交互折叠区 2: 底层技术参数与附件审计 -->
+       <div class="tech-drawer">
+         <button id="btn-toggle-details" class="drawer-trigger" aria-expanded="false" type="button">
+@@ -3178,7 +3006,6 @@
+     });
+   });
+   el('reset-panelBg-tokens')?.addEventListener('click', () => setCustomColor('panelBg', ''));
+-  el('reset-all-colors')?.addEventListener('click', () => { resetCustomColors(); closeColorPicker(); });
+   el('reset-all-colors-tokens')?.addEventListener('click', () => { resetCustomColors(); closeColorPicker(); });
+ 
+   try {
+@@ -3867,6 +3694,8 @@
+           ? anchorBtn.getBoundingClientRect()
+           : hRect;
+         const top = Math.max(36, Math.min(vh - 120, Math.round((bRect.bottom || hRect.bottom) + 6)));
++        const maxAvailH = Math.max(240, vh - top - 20);
++        const panelMaxH = panelEl.id === 'panel' ? Math.min(580, maxAvailH) : maxAvailH;
+         const isCompact = panelEl.classList?.contains?.('cost-compact-view') || panelEl.getAttribute?.('class')?.includes?.('cost-compact-view');
+         const effW = isCompact ? 400 : targetW;
+         const maxAvailW = Math.max(260, vw - minLeft - 12);
+@@ -3880,6 +3709,7 @@
+         panelEl.style.left = `${left}px`;
+         panelEl.style.right = 'auto';
+         panelEl.style.maxWidth = `${maxAvailW}px`;
++        panelEl.style.maxHeight = `${panelMaxH}px`;
+         panelEl.style.transformOrigin = 'top right';
+       };
+ 
+@@ -3897,7 +3727,19 @@
+     }
+     if (typeof MutationObserver !== 'undefined' && document.body) {
+       hostDomObserver = new MutationObserver(() => {
+-        if (!host.isConnected || host.getAttribute('data-dock') !== 'flow' || !findHostTitlebar()?.contains?.(host)) {
++        if (!host.isConnected) {
++          scheduleLayoutSync();
++          return;
++        }
++        // 已稳定挂载于当前观察到的顶栏内时 O(1) 快速返回，避免聊天高频 DOM 变更反复触发选择器查找
++        if (
++          host.getAttribute('data-dock') === 'flow' &&
++          observedTitlebar?.isConnected &&
++          observedTitlebar.contains?.(host)
++        ) {
++          return;
++        }
++        if (host.getAttribute('data-dock') !== 'flow' || !findHostTitlebar()?.contains?.(host)) {
+           scheduleLayoutSync();
+         }
+       });
+@@ -4033,7 +3875,6 @@
+   }
+ 
+   // 外观调色按钮直接展开抽屉
+-  el('btn-panel-palette')?.addEventListener('click', () => toggleColorsDrawer());
+   el('btn-panel-tokens-palette')?.addEventListener('click', () => toggleTokenColorsDrawer());
+ 
+   // =========================================================================
+@@ -5947,285 +5788,6 @@ function closeAllDropdowns(exceptWrap = null) {
+   el('badge-tokens').addEventListener('contextmenu', e => { e.preventDefault(); cycleTheme(); });
+   el('badge-speed')?.addEventListener('contextmenu', e => { e.preventDefault(); cycleTheme(); });
+ 
+-  // 二级抽屉: 上下文加长折叠展开与状态机
+-  const btnUnlock = el('btn-toggle-unlock');
+-  const unlockDrawerBody = el('unlock-drawer-body');
+-  const unlockDrawerArrow = el('unlock-drawer-arrow');
+-  const unlockBadge = el('unlock-badge');
+-  const unlockStatusDesc = el('unlock-status-desc');
+-  const btnApplyUnlock = el('btn-apply-unlock');
+-  const btnRestoreUnlock = el('btn-restore-unlock');
+-  const btnRefreshUnlock = el('btn-refresh-unlock');
+-  const unlockResultBox = el('unlock-result-box');
+-  const unlockResultText = el('unlock-result-text');
+-  const unlockMetaTarget = el('unlock-meta-target');
+-  const unlockMetaArch = el('unlock-meta-arch');
+-  const unlockMetaSha = el('unlock-meta-sha');
+-  const unlockMetaBackup = el('unlock-meta-backup');
+-  const linkUnlockAuthor = el('link-unlock-author');
+-  const btnCopyUnlockLink = el('btn-copy-unlock-link');
+-  const unlockLinkToast = el('unlock-link-toast');
+-
+-  let currentUnlockStatus = null;
+-  let isUnlocking = false;
+-  let unlockReqSeq = 0;
+-
+-  function toggleUnlockDrawer(forceOpen) {
+-    if (!unlockDrawerBody) return;
+-    const isHidden = unlockDrawerBody.style.display === 'none' || !unlockDrawerBody.style.display;
+-    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : isHidden;
+-    unlockDrawerBody.style.display = nextOpen ? 'block' : 'none';
+-    if (unlockDrawerArrow) unlockDrawerArrow.textContent = nextOpen ? '▲ 收起' : '▼ 展开';
+-    btnUnlock?.setAttribute('aria-expanded', String(nextOpen));
+-    if (nextOpen && !currentUnlockStatus) {
+-      void refreshUnlockStatus();
+-    }
+-  }
+-  btnUnlock?.addEventListener('click', () => toggleUnlockDrawer());
+-
+-  async function invokeUnlockApi(endpoint, payload = {}) {
+-    if (endpoint === 'status' && window.contextMeterAPI?.getContextUnlockStatus) {
+-      return await window.contextMeterAPI.getContextUnlockStatus(payload);
+-    }
+-    if (endpoint === 'apply' && window.contextMeterAPI?.applyContextUnlock) {
+-      return await window.contextMeterAPI.applyContextUnlock(payload);
+-    }
+-    if (endpoint === 'restore' && window.contextMeterAPI?.restoreContextUnlock) {
+-      return await window.contextMeterAPI.restoreContextUnlock(payload);
+-    }
+-    if (typeof window !== 'undefined' && window.__AGContextMeterLive?.port) {
+-      const live = window.__AGContextMeterLive;
+-      const r = await fetch(`http://127.0.0.1:${live.port}/context-unlock-${endpoint}`, {
+-        method: 'POST',
+-        headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
+-        body: JSON.stringify(payload)
+-      });
+-      return await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }));
+-    }
+-    return { ok: false, error: '未连接到桥接服务（请重启客户端生效新 IPC，或执行 node cli.js live）' };
+-  }
+-
+-  async function refreshUnlockStatus() {
+-    if (!unlockBadge) return;
+-    const thisSeq = ++unlockReqSeq;
+-    try {
+-      const currentObservedBudget = (state.latest?.budget && state.latest.budget > 0)
+-        ? state.latest.budget
+-        : undefined;
+-      const res = await invokeUnlockApi('status', { currentBudget: currentObservedBudget });
+-      if (thisSeq !== unlockReqSeq) return;
+-
+-      if (!res || !res.ok || !res.data) {
+-        unlockBadge.textContent = '检测失败';
+-        unlockBadge.className = 'key-pill pill-danger';
+-        if (unlockStatusDesc) unlockStatusDesc.textContent = res?.error || '获取后端状态失败。';
+-        return;
+-      }
+-      const data = res.data;
+-      currentUnlockStatus = data;
+-
+-      unlockBadge.textContent = data.statusText || data.status;
+-      if (data.status === 'verified_active') {
+-        unlockBadge.className = 'key-pill pill-ok';
+-      } else if (data.status === 'patched_runtime_unconfirmed') {
+-        unlockBadge.className = 'key-pill pill-info';
+-      } else if (data.status === 'patched_pending_restart') {
+-        unlockBadge.className = 'key-pill pill-warn';
+-      } else if (data.status === 'not_patched') {
+-        unlockBadge.className = 'key-pill pill-muted';
+-      } else {
+-        unlockBadge.className = 'key-pill pill-danger';
+-      }
+-
+-      if (unlockStatusDesc) {
+-        unlockStatusDesc.textContent = data.details || data.reason || '状态已更新。';
+-      }
+-
+-      if (unlockMetaTarget) unlockMetaTarget.textContent = data.targetPath || '未检测到';
+-      if (unlockMetaArch) unlockMetaArch.textContent = `${data.arch || '未知'} (${data.format || '未知'}, ${data.mode || '未知'})`;
+-      if (unlockMetaSha) unlockMetaSha.textContent = data.sha256 ? `${data.sha256.slice(0, 16)}…` : '—';
+-      if (unlockMetaBackup) {
+-        if (data.hasBackup && data.backupInfo) {
+-          unlockMetaBackup.textContent = `已备份 (${data.backupInfo.backupPath})`;
+-        } else {
+-          unlockMetaBackup.textContent = '尚未备份（首次应用时将自动安全备份至应用目录外部）';
+-        }
+-      }
+-
+-      if (btnApplyUnlock) {
+-        if (data.status === 'not_patched') {
+-          btnApplyUnlock.disabled = false;
+-          btnApplyUnlock.textContent = '⚡ 立即应用加长补丁';
+-        } else if (data.status === 'verified_active') {
+-          btnApplyUnlock.disabled = true;
+-          btnApplyUnlock.textContent = '✅ 已生效（无需重复应用）';
+-        } else if (data.status === 'patched_runtime_unconfirmed') {
+-          btnApplyUnlock.disabled = true;
+-          btnApplyUnlock.textContent = '🔍 补丁已写入（运行状态待确认）';
+-        } else if (data.status === 'patched_pending_restart') {
+-          btnApplyUnlock.disabled = true;
+-          btnApplyUnlock.textContent = '⏳ 已打补丁（待重启客户端）';
+-        } else {
+-          btnApplyUnlock.disabled = true;
+-          btnApplyUnlock.textContent = '⚠️ 当前目标不受支持';
+-        }
+-      }
+-
+-      if (btnRestoreUnlock) {
+-        if (data.status === 'verified_active' || data.status === 'patched_pending_restart' || data.status === 'patched_runtime_unconfirmed' || data.hasBackup) {
+-          btnRestoreUnlock.disabled = false;
+-        } else {
+-          btnRestoreUnlock.disabled = true;
+-        }
+-      }
+-    } catch (e) {
+-      if (thisSeq !== unlockReqSeq) return;
+-      unlockBadge.textContent = '异常';
+-      unlockBadge.className = 'key-pill pill-danger';
+-      if (unlockStatusDesc) unlockStatusDesc.textContent = `检测异常: ${e.message}`;
+-    }
+-  }
+-
+-  btnRefreshUnlock?.addEventListener('click', () => {
+-    void refreshUnlockStatus();
+-  });
+-
+-  btnApplyUnlock?.addEventListener('click', async () => {
+-    if (isUnlocking) return;
+-    isUnlocking = true;
+-    if (btnApplyUnlock) btnApplyUnlock.disabled = true;
+-    if (unlockResultBox) unlockResultBox.style.display = 'none';
+-
+-    try {
+-      const res = await invokeUnlockApi('apply');
+-      if (!res || !res.ok) {
+-        throw new Error(res?.error || '应用补丁失败');
+-      }
+-      if (unlockResultBox && unlockResultText) {
+-        unlockResultBox.style.display = 'block';
+-        unlockResultBox.className = 'unlock-result-box result-success';
+-        unlockResultText.innerHTML = `<strong>🎉 解锁成功！</strong><br>${res.message || '补丁已安全写入。'}`;
+-      }
+-    } catch (e) {
+-      if (unlockResultBox && unlockResultText) {
+-        unlockResultBox.style.display = 'block';
+-        unlockResultBox.className = 'unlock-result-box result-error';
+-        unlockResultText.innerHTML = `<strong>❌ 应用补丁失败：</strong>${e.message}`;
+-      }
+-    } finally {
+-      isUnlocking = false;
+-      await refreshUnlockStatus();
+-    }
+-  });
+-
+-  btnRestoreUnlock?.addEventListener('click', async () => {
+-    if (isUnlocking) return;
+-    isUnlocking = true;
+-    if (btnRestoreUnlock) btnRestoreUnlock.disabled = true;
+-    if (unlockResultBox) unlockResultBox.style.display = 'none';
+-
+-    try {
+-      const res = await invokeUnlockApi('restore');
+-      if (!res || !res.ok) {
+-        throw new Error(res?.error || '恢复原版失败');
+-      }
+-      if (unlockResultBox && unlockResultText) {
+-        unlockResultBox.style.display = 'block';
+-        unlockResultBox.className = 'unlock-result-box result-success';
+-        unlockResultText.innerHTML = `<strong>🔄 恢复成功！</strong><br>${res.message || '已成功还原官方原版二进制。'}`;
+-      }
+-    } catch (e) {
+-      if (unlockResultBox && unlockResultText) {
+-        unlockResultBox.style.display = 'block';
+-        unlockResultBox.className = 'unlock-result-box result-error';
+-        unlockResultText.innerHTML = `<strong>❌ 恢复原版失败：</strong>${e.message}`;
+-      }
+-    } finally {
+-      isUnlocking = false;
+-      await refreshUnlockStatus();
+-    }
+-  });
+-
+-  const UNLOCK_POST_URL = 'https://linux.do/t/topic/3117832';
+-  let unlockToastTimer = null;
+-
+-  function showUnlockToast(msg) {
+-    if (!unlockLinkToast) return;
+-    if (unlockToastTimer) clearTimeout(unlockToastTimer);
+-    unlockLinkToast.textContent = msg;
+-    unlockLinkToast.style.display = 'block';
+-    unlockToastTimer = setTimeout(() => {
+-      unlockLinkToast.style.display = 'none';
+-    }, 4500);
+-  }
+-
+-  async function openUnlockAuthorPost() {
+-    let opened = false;
+-    try {
+-      if (window.contextMeterAPI?.openExternal) {
+-        const res = await window.contextMeterAPI.openExternal(UNLOCK_POST_URL);
+-        if (res && res.ok) opened = true;
+-      }
+-    } catch {}
+-
+-    if (!opened) {
+-      try {
+-        const w = window.open(UNLOCK_POST_URL, '_blank');
+-        if (w) opened = true;
+-      } catch {}
+-    }
+-
+-    if (opened) {
+-      showUnlockToast('已在系统默认浏览器中打开原作者帖子');
+-    } else {
+-      copyUnlockPostUrl(true);
+-    }
+-  }
+-
+-  function copyUnlockPostUrl(fromFailedOpen = false) {
+-    let copied = false;
+-    try {
+-      if (navigator.clipboard?.writeText) {
+-        navigator.clipboard.writeText(UNLOCK_POST_URL);
+-        copied = true;
+-      }
+-    } catch {}
+-    if (!copied) {
+-      try {
+-        const ta = document.createElement('textarea');
+-        ta.value = UNLOCK_POST_URL;
+-        document.body.appendChild(ta);
+-        ta.select();
+-        document.execCommand('copy');
+-        document.body.removeChild(ta);
+-        copied = true;
+-      } catch {}
+-    }
+-    showUnlockToast(fromFailedOpen
+-      ? '无法直接唤起外部浏览器，原作者帖子链接已复制到剪贴板，可直接在浏览器粘贴访问。'
+-      : '原作者帖子链接已成功复制到剪贴板！');
+-  }
+-
+-  linkUnlockAuthor?.addEventListener('click', (e) => {
+-    e.preventDefault();
+-    e.stopPropagation();
+-    void openUnlockAuthorPost();
+-  });
+-
+-  linkUnlockAuthor?.addEventListener('keydown', (e) => {
+-    if (e.key === 'Enter' || e.key === ' ') {
+-      e.preventDefault();
+-      e.stopPropagation();
+-      void openUnlockAuthorPost();
+-    }
+-  });
+-
+-  btnCopyUnlockLink?.addEventListener('click', (e) => {
+-    e.preventDefault();
+-    e.stopPropagation();
+-    copyUnlockPostUrl(false);
+-  });
+-
+   // -------------------------------------------------------------
+   // 模块 2: 客户端界面汉化 (AntigravityChinese)
+   // -------------------------------------------------------------
+@@ -6249,35 +5811,72 @@ function closeAllDropdowns(exceptWrap = null) {
+     }
+   });
+ 
+-  // -------------------------------------------------------------
+-  // 模块 3: 免 TUN 网络直连 (AntigravityProxyNoTun)
+-  // -------------------------------------------------------------
+-  const btnToggleProxy = el('btn-toggle-proxy');
+-  const proxyDrawerBody = el('proxy-drawer-body');
+-  const proxyDrawerArrow = el('proxy-drawer-arrow');
+-  const proxyBadge = el('proxy-badge');
+-  const proxyStatusDesc = el('proxy-status-desc');
+-  const inputProxyUrl = el('input-proxy-url');
+-  const inputProxyBypass = el('input-proxy-bypass');
+-  const btnTestProxy = el('btn-test-proxy');
+-  const btnToggleProxyModule = el('btn-toggle-proxy-module');
+-  const proxyTestResult = el('proxy-test-result');
+-
+-  let isProxyExpanded = false;
+-  let currentProxyEnabled = false;
+-
+-  btnToggleProxy?.addEventListener('click', () => {
+-    isProxyExpanded = !isProxyExpanded;
+-    if (proxyDrawerBody) proxyDrawerBody.style.display = isProxyExpanded ? 'block' : 'none';
+-    if (proxyDrawerArrow) proxyDrawerArrow.textContent = isProxyExpanded ? '▲ 收起' : '▼ 展开';
+-    btnToggleProxy?.setAttribute('aria-expanded', String(isProxyExpanded));
+-  });
++  function isDomTranslatedNow() {
++    if (typeof window.__AGY_I18N_DATA__ !== 'undefined' || typeof window.__AGY_TRANSLATE_EL__ !== 'undefined') {
++      return true;
++    }
++    try {
++      const systemContainers = document.querySelectorAll(
++        "div[role='navigation'], nav, header, [role='banner'], aside, [data-testid*='sidebar'], [data-testid*='navigation'], [class*='@container/titlebar'], .monaco-workbench, .activitybar"
++      );
++      const systemKeywords = ['新建对话', '新建会话', '新建', '设置', '账户', '项目', '关于', '帮助', '工作区', '管理', '自定义扩展', '资源管理器', '活动栏'];
++      for (let i = 0; i < systemContainers.length; i++) {
++        const container = systemContainers[i];
++        if (container.closest && container.closest('.chat-session, .conversation-view, .monaco-list-row, .markdown, [data-testid*="chat"], [data-testid*="message"]')) {
++          continue; // 严格排除用户聊天内容区
++        }
++        const labeledNodes = container.querySelectorAll ? container.querySelectorAll('button, a, [role="button"], [aria-label], [title], span') : [];
++        for (let j = 0; j < Math.min(labeledNodes.length, 40); j++) {
++          const node = labeledNodes[j];
++          const label = (node.getAttribute && (node.getAttribute('aria-label') || node.getAttribute('title'))) || '';
++          if (label && systemKeywords.some(kw => label.includes(kw))) return true;
++          const text = (node.textContent || '').trim();
++          if (text && systemKeywords.some(kw => text.includes(kw))) return true;
++        }
++        const txt = container.innerText || '';
++        if (systemKeywords.some(kw => txt.includes(kw))) return true;
++      }
++      const nav = document.querySelector("div[role='navigation'], nav");
++      if (nav && nav.innerText && systemKeywords.some(kw => nav.innerText.includes(kw))) {
++        return true;
++      }
++    } catch {}
++    return false;
++  }
++
++  async function callLiveBridge(route, payload = {}) {
++    const live = typeof window !== 'undefined' ? window.__AGContextMeterLive : null;
++    if (!live?.port || !live?.token) return null;
++    const resp = await fetch(`http://127.0.0.1:${live.port}${route}`, {
++      method: 'POST',
++      headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
++      body: JSON.stringify(payload)
++    });
++    if (!resp.ok) {
++      throw new Error(`实时桥接 HTTP ${resp.status}`);
++    }
++    return await resp.json().catch(() => null);
++  }
+ 
+   async function refreshModulesDisplay() {
++    const isDomTranslated = isDomTranslatedNow();
+     try {
+       const api = window.contextMeterAPI;
+-      if (!api || typeof api.getModulesStatus !== 'function') return;
+-      const res = await api.getModulesStatus();
++      const hasIpc = Boolean(api && typeof api.getModulesStatus === 'function');
++      const hasLive = Boolean(typeof window !== 'undefined' && window.__AGContextMeterLive?.port && window.__AGContextMeterLive?.token);
++      if (!hasIpc && !hasLive) {
++        if (chineseBadge) {
++          chineseBadge.textContent = isDomTranslated ? '🟢 已翻译生效' : '⏳ 待重启生效';
++          chineseBadge.className = isDomTranslated ? 'key-pill pill-ok' : 'key-pill pill-warn';
++        }
++        if (chineseStatusDesc) {
++          chineseStatusDesc.textContent = isDomTranslated
++            ? '汉化引擎运行中（待后台桥接就绪可接管热开关配置）。'
++            : '汉化模块就绪，等待后台守护连接或重启窗口以加载汉化引擎。';
++        }
++        return;
++      }
++      const res = hasIpc ? await api.getModulesStatus() : await callLiveBridge('/modules-status', {});
+       if (!res || !res.ok || !res.data) {
+         const errMsg = (res && res.error) ? res.error : '模块状态返回异常';
+         if (chineseBadge) {
+@@ -6287,57 +5886,17 @@ function closeAllDropdowns(exceptWrap = null) {
+         if (chineseStatusDesc) {
+           chineseStatusDesc.textContent = `检测汉化状态失败: ${errMsg}`;
+         }
+-        if (proxyBadge) {
+-          proxyBadge.textContent = '⚠️ 读取失败';
+-          proxyBadge.className = 'key-pill pill-danger';
+-        }
+-        if (proxyStatusDesc) {
+-          proxyStatusDesc.textContent = `检测免 TUN 代理状态失败: ${errMsg}`;
+-        }
+         return;
+       }
+       const cfg = res.data;
+-
++      const isCdpDaemonMode = res.mode === 'cdp-daemon';
+       currentChineseEnabled = Boolean(cfg.modules?.chinese?.enabled);
+-      // 判定宿主界面是否已翻译：定向检查系统导航、活动栏、菜单及操作按钮等固有系统壳层（排除用户消息内容区域）
+-      const isDomTranslated = (() => {
+-        if (typeof window.__AGY_I18N_DATA__ !== 'undefined' || typeof window.__AGY_TRANSLATE_EL__ !== 'undefined') {
+-          return true;
+-        }
+-        try {
+-          const systemContainers = document.querySelectorAll(
+-            "div[role='navigation'], nav, header, [role='banner'], aside, [data-testid*='sidebar'], [data-testid*='navigation'], [class*='@container/titlebar'], .monaco-workbench, .activitybar"
+-          );
+-          const systemKeywords = ['新建对话', '新建会话', '新建', '设置', '账户', '项目', '关于', '帮助', '工作区', '管理', '自定义扩展', '资源管理器', '活动栏'];
+-          for (let i = 0; i < systemContainers.length; i++) {
+-            const container = systemContainers[i];
+-            if (container.closest && container.closest('.chat-session, .conversation-view, .monaco-list-row, .markdown, [data-testid*="chat"], [data-testid*="message"]')) {
+-              continue; // 严格排除用户聊天内容区
+-            }
+-            const labeledNodes = container.querySelectorAll ? container.querySelectorAll('button, a, [role="button"], [aria-label], [title], span') : [];
+-            for (let j = 0; j < Math.min(labeledNodes.length, 40); j++) {
+-              const node = labeledNodes[j];
+-              const label = (node.getAttribute && (node.getAttribute('aria-label') || node.getAttribute('title'))) || '';
+-              if (label && systemKeywords.some(kw => label.includes(kw))) return true;
+-              const text = (node.textContent || '').trim();
+-              if (text && systemKeywords.some(kw => text.includes(kw))) return true;
+-            }
+-            const txt = container.innerText || '';
+-            if (systemKeywords.some(kw => txt.includes(kw))) return true;
+-          }
+-          const nav = document.querySelector("div[role='navigation'], nav");
+-          if (nav && nav.innerText && systemKeywords.some(kw => nav.innerText.includes(kw))) {
+-            return true;
+-          }
+-        } catch {}
+-        return false;
+-      })();
+       const disk = res.disk || {};
+ 
+       if (chineseBadge) {
+         if (!currentChineseEnabled) {
+           if (isDomTranslated) {
+-            chineseBadge.textContent = '⏳ 需重启恢复英文';
++            chineseBadge.textContent = isCdpDaemonMode ? '⏳ 需重载恢复英文' : '⏳ 需重启恢复英文';
+             chineseBadge.className = 'key-pill pill-warn';
+           } else {
+             chineseBadge.textContent = disk.chinese ? '⚪ 已关闭 (就绪)' : '⚪ 未安装';
+@@ -6350,59 +5909,36 @@ function closeAllDropdowns(exceptWrap = null) {
+           chineseBadge.textContent = '⚠️ 磁盘未注入';
+           chineseBadge.className = 'key-pill pill-danger';
+         } else {
+-          chineseBadge.textContent = '⏳ 待重启客户端生效';
++          chineseBadge.textContent = isCdpDaemonMode ? '⏳ 待后台自动注入' : '⏳ 待重启客户端生效';
+           chineseBadge.className = 'key-pill pill-warn';
+         }
+       }
+       if (chineseStatusDesc) {
+         if (!currentChineseEnabled) {
+           if (isDomTranslated) {
+-            chineseStatusDesc.textContent = '汉化模块已在配置中关闭；当前界面仍保留已加载的中文 DOM 缓存，需完全退出并重新打开 Antigravity 客户端以彻底恢复纯净官方原生英文。';
++            chineseStatusDesc.textContent = isCdpDaemonMode
++              ? '汉化模块已在配置中关闭；当前页面仍保留已翻译的 DOM，重载窗口或重启 Antigravity 即可恢复官方原生英文。'
++              : '汉化模块已在配置中关闭；当前界面仍保留已加载的中文 DOM 缓存，需完全退出并重新打开 Antigravity 客户端以彻底恢复纯净官方原生英文。';
+           } else {
+             chineseStatusDesc.textContent = disk.chinese
+-              ? '客户端汉化已关闭（磁盘已具备汉化资源与配置门禁，开启后重启即可生效）。'
++              ? '客户端汉化已关闭（后台已具备汉化资源，开启后可自动热注入生效）。'
+               : '客户端汉化处于未安装状态，保持官方原生英文界面。';
+           }
+         } else if (isDomTranslated) {
+-          chineseStatusDesc.textContent = '汉化引擎运行中：DOM 监听器正常工作，左侧边栏与核心菜单已成功翻译。';
++          chineseStatusDesc.textContent = isCdpDaemonMode
++            ? '汉化引擎运行中（CDP 常驻守护模式）：页面重载或官方更新后自动生效，无需修改 app.asar。'
++            : '汉化引擎运行中：DOM 监听器正常工作，左侧边栏与核心菜单已成功翻译。';
+         } else if (!disk.chinese) {
+           chineseStatusDesc.textContent = '配置已开启，但当前磁盘 ASAR 未注入汉化资源；需退出客户端后通过命令行运行 node cli.js chinese:enable 完成注入。';
+         } else {
+-          chineseStatusDesc.textContent = '汉化代码已注入且配置已开启；需完全退出并重新打开 Antigravity 客户端加载生效。';
++          chineseStatusDesc.textContent = isCdpDaemonMode
++            ? '汉化已开启，后台 CDP 守护将在数秒内自动热注入当前窗口。'
++            : '汉化代码已注入且配置已开启；需完全退出并重新打开 Antigravity 客户端加载生效。';
+         }
+       }
+       if (btnToggleChineseModule) {
+         btnToggleChineseModule.textContent = currentChineseEnabled ? '关闭客户端汉化' : '开启客户端汉化';
+       }
+-
+-      currentProxyEnabled = Boolean(cfg.modules?.proxy?.enabled);
+-      if (proxyBadge) {
+-        if (currentProxyEnabled) {
+-          proxyBadge.textContent = disk.proxy ? '🟢 直连已配置' : '⚠️ 磁盘未注入';
+-          proxyBadge.className = disk.proxy ? 'key-pill pill-ok' : 'key-pill pill-warn';
+-        } else {
+-          proxyBadge.textContent = '⚪ 未启用';
+-          proxyBadge.className = 'key-pill pill-muted';
+-        }
+-      }
+-      if (inputProxyUrl && cfg.modules?.proxy?.proxyUrl) {
+-        inputProxyUrl.value = cfg.modules.proxy.proxyUrl;
+-      }
+-      if (inputProxyBypass && cfg.modules?.proxy?.bypassList) {
+-        inputProxyBypass.value = cfg.modules.proxy.bypassList;
+-      }
+-      if (proxyStatusDesc) {
+-        if (currentProxyEnabled) {
+-          proxyStatusDesc.textContent = disk.proxy
+-            ? `已启用本地网络直连（代理: ${cfg.modules.proxy.proxyUrl}）。注意：模型请求连通性待实际在线对话验证，未验证前不代表公网直连必定成功。`
+-            : `配置已开启代理，但当前磁盘 ASAR 未注入代理拦截逻辑；需退出客户端后通过命令行运行 node cli.js proxy:enable 完成注入。`;
+-        } else {
+-          proxyStatusDesc.textContent = '未启用本地网络直连，网络请求跟随系统默认/TUN 设置。';
+-        }
+-      }
+-      if (btnToggleProxyModule) {
+-        btnToggleProxyModule.textContent = currentProxyEnabled ? '关闭免 TUN 直连' : '开启免 TUN 直连';
+-      }
+     } catch (err) {
+       const errMsg = err?.message || String(err);
+       if (chineseBadge) {
+@@ -6412,26 +5948,27 @@ function closeAllDropdowns(exceptWrap = null) {
+       if (chineseStatusDesc) {
+         chineseStatusDesc.textContent = `检测汉化状态异常: ${errMsg}`;
+       }
+-      if (proxyBadge) {
+-        proxyBadge.textContent = '⚠️ 读取异常';
+-        proxyBadge.className = 'key-pill pill-danger';
+-      }
+-      if (proxyStatusDesc) {
+-        proxyStatusDesc.textContent = `检测免 TUN 代理状态异常: ${errMsg}`;
+-      }
+     }
+   }
+ 
+   btnToggleChineseModule?.addEventListener('click', async () => {
+     try {
+       const api = window.contextMeterAPI;
+-      if (!api || typeof api.toggleModule !== 'function') return;
++      const hasIpc = Boolean(api && typeof api.toggleModule === 'function');
++      const hasLive = Boolean(typeof window !== 'undefined' && window.__AGContextMeterLive?.port && window.__AGContextMeterLive?.token);
++      if (!hasIpc && !hasLive) return;
+       btnToggleChineseModule.disabled = true;
+       btnToggleChineseModule.textContent = '正在处理…';
+-      const res = await api.toggleModule('chinese', !currentChineseEnabled);
++      const targetEnable = !currentChineseEnabled;
++      const res = hasIpc
++        ? await api.toggleModule('chinese', targetEnable)
++        : await callLiveBridge('/toggle-module', { name: 'chinese', enable: targetEnable });
+       if (!res || !res.ok) {
+         alert(res?.error || '切换汉化模块失败');
+       }
++      if (!hasIpc && targetEnable) {
++        await new Promise(r => setTimeout(r, 400));
++      }
+       await refreshModulesDisplay();
+     } catch (e) {
+       alert('切换汉化模块异常: ' + e.message);
+@@ -6443,68 +5980,8 @@ function closeAllDropdowns(exceptWrap = null) {
+     }
+   });
+ 
+-  btnToggleProxyModule?.addEventListener('click', async () => {
+-    try {
+-      const api = window.contextMeterAPI;
+-      if (!api || typeof api.toggleModule !== 'function') return;
+-      btnToggleProxyModule.disabled = true;
+-      btnToggleProxyModule.textContent = '正在处理…';
+-      const res = await api.toggleModule('proxy', !currentProxyEnabled, {
+-        proxyUrl: inputProxyUrl?.value?.trim(),
+-        bypassList: inputProxyBypass?.value?.trim()
+-      });
+-      if (!res || !res.ok) {
+-        alert(res?.error || '切换代理模块失败');
+-      }
+-      await refreshModulesDisplay();
+-    } catch (e) {
+-      alert('切换代理模块异常: ' + e.message);
+-    } finally {
+-      if (btnToggleProxyModule) {
+-        btnToggleProxyModule.disabled = false;
+-        btnToggleProxyModule.textContent = currentProxyEnabled ? '关闭免 TUN 直连' : '开启免 TUN 直连';
+-      }
+-    }
+-  });
+-
+-  btnTestProxy?.addEventListener('click', async () => {
+-    try {
+-      const api = window.contextMeterAPI;
+-      if (!api || typeof api.testProxy !== 'function') return;
+-      btnTestProxy.disabled = true;
+-      btnTestProxy.textContent = '正在测试…';
+-      if (proxyTestResult) {
+-        proxyTestResult.style.display = 'block';
+-        proxyTestResult.textContent = '正在发起本地与网络连通性测试…';
+-      }
+-      const res = await api.testProxy(inputProxyUrl?.value?.trim());
+-      if (proxyTestResult) {
+-        if (!res || !res.ok) {
+-          proxyTestResult.textContent = '❌ 测试失败: ' + (res?.error || '未知异常');
+-        } else {
+-          const d = res.data;
+-          proxyTestResult.innerHTML = `
+-            配置格式: ${d.configValid ? '✅ 合法' : '❌ 无效'}<br>
+-            本地端口: ${d.proxyReachable ? '✅ 可连接' : '❌ 无法连接'}<br>
+-            公网连通: ${d.internetReachable ? '✅ 可访问' : '⚠️ 无法访问公网 (可能无境外连通)'}<br>
+-            模型请求: 待通过真实在线会话验证 (分层标定)
+-            ${d.error ? `<br><span style="color:var(--ag-danger)">⚠️ ${d.error}</span>` : ''}
+-          `;
+-        }
+-      }
+-    } catch (e) {
+-      if (proxyTestResult) proxyTestResult.textContent = '❌ 测试异常: ' + e.message;
+-    } finally {
+-      if (btnTestProxy) {
+-        btnTestProxy.disabled = false;
+-        btnTestProxy.textContent = '🔍 测试代理连通性';
+-      }
+-    }
+-  });
+-
+-  // 静默初始化检测一次解锁状态与各模块状态
++  // 静默初始化检测一次各模块状态
+   setTimeout(() => {
+-    void refreshUnlockStatus();
+     void refreshModulesDisplay();
+   }, 500);
+   setTimeout(() => {
+@@ -6513,23 +5990,6 @@ function closeAllDropdowns(exceptWrap = null) {
+     }
+   }, 2000);
+ 
+-  // 二级抽屉 1（面板 B 内）: 指标与背景颜色自定义抽屉折叠展开
+-  const btnColors = el('btn-toggle-colors');
+-  const colorDrawerBody = el('color-drawer-body');
+-  const colorDrawerArrow = el('color-drawer-arrow');
+-  function toggleColorsDrawer(forceOpen) {
+-    if (!colorDrawerBody) return;
+-    const isHidden = colorDrawerBody.style.display === 'none' || !colorDrawerBody.style.display;
+-    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : isHidden;
+-    colorDrawerBody.style.display = nextOpen ? 'block' : 'none';
+-    if (colorDrawerArrow) colorDrawerArrow.textContent = nextOpen ? '▲ 收起设置' : '▼ 展开设置';
+-    btnColors?.setAttribute('aria-expanded', String(nextOpen));
+-    if (!nextOpen) {
+-      closeColorPicker();
+-    }
+-  }
+-  btnColors?.addEventListener('click', () => toggleColorsDrawer());
+-
+   // 二级抽屉 2（面板 B 内）: 底层技术抽屉折叠展开
+   const btnDetails = el('btn-toggle-details');
+   const drawerBody = el('drawer-body');
+@@ -6934,8 +6394,12 @@ function closeAllDropdowns(exceptWrap = null) {
+     renderActiveHeatView(true);
+     updateHeatTabThumb();
+ 
+-    if (save && typeof window !== 'undefined' && typeof window.contextMeterAPI?.saveSettings === 'function') {
+-      window.contextMeterAPI.saveSettings({ savedHeatView: view });
++    if (save && typeof window !== 'undefined') {
++      if (typeof window.contextMeterAPI?.saveSettings === 'function') {
++        window.contextMeterAPI.saveSettings({ savedHeatView: view });
++      } else if (window.__AGContextMeterLive?.port) {
++        void callLiveBridge('/save-settings', { savedHeatView: view }).catch(() => {});
++      }
+     }
+   }
+ 
+@@ -7022,12 +6486,6 @@ function closeAllDropdowns(exceptWrap = null) {
+         btnTokenColors?.focus?.();
+         return;
+       }
+-      const colorDrawer = el('color-drawer-body');
+-      if (colorDrawer && colorDrawer.style.display !== 'none') {
+-        toggleColorsDrawer(false);
+-        btnColors?.focus?.();
+-        return;
+-      }
+       toggle(false);
+       hideContextTooltip();
+       const om = el('overflow-menu');
+@@ -7594,6 +7052,12 @@ function closeAllDropdowns(exceptWrap = null) {
+     const url = 'https://github.com/elviscjn-cjn/antigravity-context-viewer' + pathSuffix;
+     if (typeof window !== 'undefined' && typeof window.contextMeterAPI?.openExternal === 'function') {
+       window.contextMeterAPI.openExternal(url);
++    } else if (typeof window !== 'undefined' && window.__AGContextMeterLive?.port) {
++      void callLiveBridge('/open-external', { url }).then(res => {
++        if (!res?.ok) window.open?.(url, '_blank');
++      }).catch(() => {
++        window.open?.(url, '_blank');
++      });
+     } else {
+       window.open?.(url, '_blank');
+     }
+@@ -7838,8 +7302,12 @@ function closeAllDropdowns(exceptWrap = null) {
+ 
+   el('check-auto-update')?.addEventListener('change', e => {
+     autoCheckUpdate = e.target.checked;
+-    if (typeof window !== 'undefined' && typeof window.contextMeterAPI?.saveSettings === 'function') {
+-      window.contextMeterAPI.saveSettings({ autoCheckUpdate });
++    if (typeof window !== 'undefined') {
++      if (typeof window.contextMeterAPI?.saveSettings === 'function') {
++        window.contextMeterAPI.saveSettings({ autoCheckUpdate });
++      } else if (window.__AGContextMeterLive?.port) {
++        void callLiveBridge('/save-settings', { autoCheckUpdate }).catch(() => {});
++      }
+     }
+   });
+ 
+@@ -8758,11 +8226,6 @@ function renderHeatmapGrid(forceRebuild = false) {
+ 
+     updateRingAndBubble(d, session, pct, danger, stale, incomplete);
+ 
+-    // 上下文预算与解锁状态自动联动：若观测到预算突破 256,000，且解锁抽屉中记录仍为待重启或未确认，则自动触发刷新同步
+-    if (d?.budget && d.budget > 256000 && currentUnlockStatus && currentUnlockStatus.status !== 'verified_active') {
+-      void refreshUnlockStatus();
+-    }
+-
+     const status = disp.isError
+       ? disp.statusText
+       : stale ? '最近请求统计读取异常或延迟，不能判断剩余空间。'
+@@ -9017,21 +8480,27 @@ function renderHeatmapGrid(forceRebuild = false) {
+     if (!state.disposed && !host.isConnected) {
+       ensureHostDocked();
+     }
++    const prevRoute = state.route;
+     const id = route();
+-    if (id !== state.route) {
++    if (id !== prevRoute) {
+       for (const controller of state.controllers) controller.abort(); state.controllers.clear(); state.generation++;
+       if (state.sessionCallsMap) state.sessionCallsMap.clear();
+       if (state.reportedFinalCallIds) state.reportedFinalCallIds.clear();
+       if (state.reportedFinalCallOutputs) state.reportedFinalCallOutputs.clear();
++      // 仅在真实运行环境中切换历史会话时将全量扫描错峰 900ms，优先让 Antigravity 与 language_server 完成首屏渲染与读取；冷启动与单测保持即时触发
++      const deferLiveScan = Boolean(prevRoute && !window.contextMeterAPI?.scan && window.__AGContextMeterLive?.port);
+       Object.assign(state, {
+         route: id, count: 0, latest: null, sessionCalls: [], sessionCostTotal: 0,
+         requestAt: 0, requestError: '', requestBusy: false, requestNext: 0,
+-        scanBusy: false, scanNext: 0, scanError: '', scan: null,
++        scanBusy: false, scanNext: deferLiveScan ? Date.now() + 900 : 0, scanError: '', scan: null,
+         reportedFinalCallIds: state.reportedFinalCallIds || new Set(),
+         reportedFinalCallOutputs: state.reportedFinalCallOutputs || new Map()
+       });
+       toggle(false); hideContextTooltip(); renderFiles(null); render();
+-      void syncTokenHistoryFromHost(false);
++      if (Date.now() - lastHistorySync > 5000) {
++        lastHistorySync = Date.now();
++        void syncTokenHistoryFromHost(false);
++      }
+     }
+     if (id && !state.requestBusy && Date.now() >= state.requestNext) void requestPoll(state.generation, id);
+     if (id && !state.scanBusy && Date.now() >= state.scanNext) void scan(state.generation, id);

@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "channel": "auto",
+  "preset": "high-contrast",
+  "contextLimit": 256000,
+  "allowedOrigins": [
+    "https://127.0.0.1",
+    "https://localhost",
+    "vscode-file://"
+  ],
+  "modules": {
+    "i18n": false,
+    "metrics": false,
+    "composerWaxSeal": true,
+    "deadlockHealer": true,
+    "customCss": true,
+    "customJs": true
+  },
+  "themeVars": {}
+}
