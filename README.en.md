@@ -8,6 +8,10 @@ This skill integrates the **Chuanban theme patch** with a **streamlined Antigrav
 
 ## Preview
 
+**Full Claude-Style Workbench View (workspace names, session titles, diff counts, and chat transcript redacted):**
+
+![Full Workbench Preview](assets/preview-workbench-full.png)
+
 **Toolbar Capsules (Chuanban Theme + Context Meter + Speed + Token Total + CLI):**
 
 ![Toolbar Preview](assets/preview-titlebar.png)
@@ -134,6 +138,7 @@ antigravity-chuanban-context-suite/
 ├── README.en.md                         # English documentation (this file)
 ├── assets/
 │   ├── antigravity-patch-guardian.mjs   # Portable CDP + loopback HTTP bridge daemon
+│   ├── preview-workbench-full.png       # Preview: full Claude-style workbench (redacted)
 │   ├── preview-titlebar.png             # Preview: titlebar capsules and Chuanban theme
 │   ├── preview-context-panel.png        # Preview: streamlined conversation context popover
 │   ├── preview-tokens-panel.png         # Preview: token summary and heatmap popover

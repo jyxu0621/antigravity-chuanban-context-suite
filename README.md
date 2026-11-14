@@ -8,6 +8,10 @@
 
 ## 预览 (Preview)
 
+**整窗 Claude 风格融合效果（已对会话标题、项目列表与对话记录打码脱敏）：**
+
+![整窗效果预览](assets/preview-workbench-full.png)
+
 **顶栏胶囊（船板主题 + 上下文进度 / 输出速度 / Token 累计 / CLI 入口）：**
 
 ![顶栏胶囊预览](assets/preview-titlebar.png)
@@ -134,6 +138,7 @@ antigravity-chuanban-context-suite/
 ├── README.en.md                         # English documentation
 ├── assets/
 │   ├── antigravity-patch-guardian.mjs   # 便携版纯 CDP + 动态回环 HTTP 桥接守护脚本
+│   ├── preview-workbench-full.png       # 预览：整窗 Claude 风格主题 + 监控弹窗效果（已打码脱敏）
 │   ├── preview-titlebar.png             # 预览：顶栏胶囊（船板主题 + ContextMeter + CLI）
 │   ├── preview-context-panel.png        # 预览：精简版当前会话上下文面板
 │   ├── preview-tokens-panel.png         # 预览：Token 统计与热力图面板
