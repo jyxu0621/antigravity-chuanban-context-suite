@@ -257,8 +257,27 @@ function stopExistingGuardian(stateDir) {
   try {
     if (!fs.existsSync(pidFile)) return;
     const oldPid = Number.parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-    if (Number.isInteger(oldPid) && oldPid > 0) {
-      process.kill(oldPid, 'SIGTERM');
+    if (!Number.isInteger(oldPid) || oldPid <= 0 || oldPid === process.pid) return;
+    if (process.platform === 'win32') {
+      const probe = spawnSync(
+        'powershell.exe',
+        ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId = ${oldPid}").CommandLine`],
+        { encoding: 'utf8', windowsHide: true, timeout: 4000 }
+      );
+      if (!String(probe.stdout || '').includes('antigravity-patch-guardian')) return;
+    } else {
+      const probe = spawnSync('ps', ['-p', String(oldPid), '-o', 'args='], { encoding: 'utf8', timeout: 3000 });
+      if (!String(probe.stdout || '').includes('antigravity-patch-guardian')) return;
+    }
+    process.kill(oldPid, 'SIGTERM');
+    const deadline = Date.now() + 800;
+    while (Date.now() < deadline) {
+      try {
+        process.kill(oldPid, 0);
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+      } catch {
+        break;
+      }
     }
   } catch {}
 }

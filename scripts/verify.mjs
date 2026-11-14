@@ -64,7 +64,12 @@ function checkDaemons() {
       list = Array.isArray(parsed) ? parsed : [parsed];
     } catch {}
     const findProc = (needle) =>
-      list.filter((p) => String(p?.CommandLine || '').includes(needle)).map((p) => p.ProcessId);
+      list
+        .filter((p) => {
+          const cmd = String(p?.CommandLine || '');
+          return cmd.includes(needle) && !cmd.includes('verify.mjs') && !cmd.includes('setup.mjs');
+        })
+        .map((p) => p.ProcessId);
     return {
       themeDaemonPids: findProc('antigravity-font-daemon'),
       patchGuardianPids: findProc('antigravity-patch-guardian')
@@ -272,6 +277,7 @@ async function main() {
 
   const staticOk =
     Boolean(viewerDir) &&
+    cleanAsar !== false &&
     fs.existsSync(guardianScript) &&
     Boolean(themeCfg && themeCfg.modules?.i18n === false && themeCfg.modules?.metrics === false) &&
     fs.existsSync(themeCustomJs) &&
