@@ -1,5 +1,5 @@
 diff --git a/i18n/i18n-runtime.js b/i18n/i18n-runtime.js
-index 20596a1..fdeb390 100644
+index b1edce8..f5f2969 100644
 --- a/i18n/i18n-runtime.js
 +++ b/i18n/i18n-runtime.js
 @@ -86,6 +86,11 @@
@@ -14,988 +14,910 @@ index 20596a1..fdeb390 100644
        for (var i = 0; i < patterns.length; i++) {
          var p = patterns[i];
          if (p.regex.test(normalized)) {
-@@ -542,14 +547,26 @@
-   function flushPendingNodes() {
-     rafScheduled = false;
-     if (pendingNodes.length === 0) return;
--    var batch = pendingNodes.splice(0, 200);
--    if (pendingNodeSet) {
--      for (var bIdx = 0; bIdx < batch.length; bIdx++) {
--        pendingNodeSet.delete(batch[bIdx]);
-+    var nowFn = (root.performance && typeof root.performance.now === 'function')
-+      ? function () { return root.performance.now(); }
-+      : function () { return Date.now(); };
-+    var startTime = nowFn();
-+    var processed = 0;
-+    var batch = [];
-+    while (pendingNodes.length > 0 && processed < 200) {
-+      var node = pendingNodes.shift();
-+      if (pendingNodeSet) pendingNodeSet.delete(node);
-+      batch.push(node);
-+      processed++;
-+      if (batch.length >= 8 || pendingNodes.length === 0 || processed >= 200) {
-+        safeTranslateNodes(batch);
-+        batch.length = 0;
-+        if (pendingNodes.length > 0 && (nowFn() - startTime) >= 8) {
-+          break;
-+        }
-       }
-     }
--    safeTranslateNodes(batch);
--    // 如果还有剩余，安排下一帧处理
-+    // 如果还有剩余或本帧预算已用满（~8ms），安排下一帧继续平滑处理
-     if (pendingNodes.length > 0) {
-       scheduleFlush();
-     }
 diff --git a/meter-renderer.js b/meter-renderer.js
-index 91bcef5..50fb968 100644
+index e0950d3..954ead9 100644
 --- a/meter-renderer.js
 +++ b/meter-renderer.js
-@@ -928,7 +928,7 @@
-     .ag-panel{
-       box-sizing:border-box;
-       position:fixed;top:38px;left:auto;right:16px;z-index:2147483500;
--      max-width:calc(100vw - 24px);max-height:calc(100vh - 52px);
-+      max-width:calc(100vw - 24px);max-height:calc(100vh - 96px);
-       overflow:auto;border:1px solid var(--ag-border-panel);border-radius:10px;
-       background:var(--ag-bg-panel);color:var(--ag-text-primary);box-shadow:var(--ag-shadow-panel);padding:14px;
-       opacity:1;transform:translateY(0);visibility:visible;pointer-events:auto;
-@@ -936,7 +936,7 @@
-       transition:opacity .16s cubic-bezier(0.16,1,0.3,1),transform .16s cubic-bezier(0.16,1,0.3,1),visibility .16s ease;
-       contain:layout paint;
+@@ -1042,8 +1042,8 @@
+       flex:1 1 auto;min-height:0;overflow-y:auto;overflow-anchor:none;overscroll-behavior:contain;
+       padding:10px 14px 20px;box-sizing:border-box;
      }
--    #panel{width:450px}
-+    #panel{width:450px;max-height:min(580px,calc(100vh - 96px))}
-     #panel-tokens{width:730px;transition:width .22s cubic-bezier(0.16,1,0.3,1),left .22s cubic-bezier(0.16,1,0.3,1),max-width .22s cubic-bezier(0.16,1,0.3,1),opacity .16s cubic-bezier(0.16,1,0.3,1),transform .16s cubic-bezier(0.16,1,0.3,1)}
+-    #panel{width:472px;max-width:calc(100vw - 24px)}
+-    #panel-quota{width:460px;max-width:calc(100vw - 24px)}
++    #panel{width:472px;max-width:calc(100vw - 24px);max-height:min(580px,calc(100vh - 96px))}
++    #panel-quota{width:460px;max-width:calc(100vw - 24px);max-height:min(580px,calc(100vh - 96px))}
+     #panel-tokens{width:730px;transition:width .22s cubic-bezier(0.16,1,0.3,1),max-width .22s cubic-bezier(0.16,1,0.3,1),opacity .16s cubic-bezier(0.16,1,0.3,1),transform .16s cubic-bezier(0.16,1,0.3,1)}
      #panel-tokens.cost-compact-view{width:400px!important;max-width:calc(100vw - 24px)}
      .ag-panel[hidden]{display:block!important;opacity:0;transform:translateY(-6px);visibility:hidden;pointer-events:none}
-@@ -1386,7 +1386,6 @@
-           <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8A6 6 0 1 1 8 2M14 2v6h-6"></path></svg>
-           <span id="update-badge-dot-ctx" class="update-badge-dot" style="display:none"></span>
-         </button>
--        <button id="btn-panel-palette" class="panel-icon-btn" type="button" aria-label="外观与调色设置" title="外观与调色设置">🎨</button>
-         <button id="theme-toggle" class="panel-icon-btn" type="button" aria-label="切换浅色/深色主题" title="当前：跟随IDE（点击切换：浅色 / 深色 / 自动）">🌓</button>
-         <button id="close" class="panel-icon-btn" type="button" aria-label="收起详情">×</button>
-       </div>
-@@ -1438,69 +1437,6 @@
-         <div id="speed-takeaway" class="key-takeaway">等待首次模型输出产生速度统计…</div>
+@@ -1979,8 +1979,6 @@
+         </svg>
+         <span id="update-badge-dot-ctx" class="update-badge-dot" style="display:none"></span>
+       </button>
+-      <button id="btn-panel-palette" class="panel-icon-btn" type="button" aria-label="外观与调色设置"
+-        data-i18n-aria="header.palette.aria" title="外观与调色设置" data-i18n-title="header.palette.aria">🎨</button>
+       <button id="theme-toggle" class="panel-icon-btn" type="button" aria-label="切换浅色/深色主题"
+         data-i18n-aria="header.theme.aria" title="当前：跟随IDE（点击切换：浅色 / 深色 / 自动）"
+         data-i18n-title="header.theme.title">🌓</button>
+@@ -1994,8 +1992,6 @@
+     <div id="ctx-tabs-bar" class="ctx-tabs-bar" role="tablist" aria-label="上下文面板分页" data-i18n-aria="tabs.aria">
+       <button id="tab-ctx-session" class="ctx-tab-btn active" type="button" role="tab" aria-selected="true"
+         data-ctx-tab="session" data-i18n="tab.session">当前会话</button>
+-      <button id="tab-ctx-models" class="ctx-tab-btn" type="button" role="tab" aria-selected="false"
+-        data-ctx-tab="models" data-i18n="tab.models">模型设置</button>
+       <button id="tab-ctx-speed" class="ctx-tab-btn" type="button" role="tab" aria-selected="false" data-ctx-tab="speed"
+         data-i18n="tab.speed">速度对比</button>
+       <button id="tab-ctx-settings" class="ctx-tab-btn" type="button" role="tab" aria-selected="false"
+@@ -2067,21 +2063,6 @@
+         <div id="speed-takeaway" class="key-takeaway" data-i18n="session.speed.wait">等待首次模型输出产生速度统计…</div>
        </div>
  
--      <!-- 二级交互折叠区: 上下文加长 (解除 256K 限制 / 实验特性) -->
+-      <!-- 紧凑上下文设置入口卡片 -->
+-      <div id="ctx-compact-card" class="ctx-compact-card">
+-        <div class="ctx-compact-info">
+-          <div class="ctx-compact-title" data-i18n="session.compact.title">上下文设置</div>
+-          <div class="ctx-compact-meta">
+-            <span><span data-i18n="session.compact.savedLabel">本模型已保存：</span><strong
+-                id="ctx-compact-saved">未单独设置（使用默认）</strong></span>
+-            <span><span data-i18n="session.compact.clientLabel">客户端当前使用：</span><strong
+-                id="ctx-compact-client">状态读取中…</strong></span>
+-          </div>
+-        </div>
+-        <button id="btn-goto-model-settings" class="ctx-compact-link-btn" type="button"
+-          data-i18n="session.compact.gotoModels">去模型设置 ›</button>
+-      </div>
+-
+       <!-- 底层技术参数与附件审计 -->
+       <div class="tech-drawer">
+         <button id="btn-toggle-details" class="drawer-trigger" aria-expanded="false" type="button">
+@@ -2143,377 +2124,6 @@
+       </div>
+     </div>
+ 
+-    <!-- 分页 2: 模型设置 -->
+-    <div id="pane-ctx-models" class="ctx-tab-pane" role="tabpanel" aria-labelledby="tab-ctx-models" hidden>
+-      <!-- 1. 客户端状态条（全局一条） -->
+-      <div id="ctx-client-status-bar" class="ctx-status-bar">
+-        <div class="ctx-status-bar-main">
+-          <div class="ctx-status-left">
+-            <span id="ctx-client-status-text" class="ctx-client-status-text"
+-              data-i18n="status.client.reading">客户端当前使用：状态读取中…</span>
+-            <span id="unlock-badge" class="key-pill pill-muted" data-i18n="status.badge.reading">状态读取中…</span>
+-          </div>
+-          <div class="ctx-status-actions">
+-            <button id="btn-restart-host" class="unlock-btn unlock-btn-primary ctx-restart-btn" type="button" hidden
+-              data-i18n="models.restartBtn">重启客户端使设置生效</button>
+-          </div>
+-        </div>
+-        <div id="ctx-restart-mismatch-note" class="ctx-status-subnote" hidden></div>
+-        <div id="ctx-manual-restart-note" class="ctx-manual-restart-note" hidden data-i18n="models.manualRestart">
+-          请手动重启：关闭所有 Antigravity 窗口（包括托盘图标里的“退出”），再重新打开 Antigravity。</div>
+-        <div id="ctx-restart-confirm" class="ctx-restart-confirm" hidden>
+-          <div class="ctx-restart-confirm-text" data-i18n="models.restartConfirm.text">重启会中断正在运行的任务。请先保存未保存的内容。</div>
+-          <div class="ctx-restart-confirm-actions">
+-            <button id="btn-restart-cancel" class="unlock-btn unlock-btn-secondary" type="button"
+-              data-i18n="models.restartConfirm.cancel">取消</button>
+-            <button id="btn-restart-confirm-go" class="unlock-btn unlock-btn-primary" type="button"
+-              data-i18n="models.restartConfirm.go">重启</button>
+-          </div>
+-        </div>
+-        <div id="ctx-restart-feedback" class="ctx-restart-feedback" hidden></div>
+-      </div>
+-
+-      <!-- 2. 模式选择器（统一设置 vs 按模型分别设置） -->
+-      <div class="ctx-scope-selector-wrap" id="ctx-scope-selector-wrap">
+-        <div class="ctx-scope-mode-toggle" role="radiogroup" aria-label="上下文设置模式" data-i18n-aria="models.mode.aria">
+-          <button type="button" class="ctx-mode-tab-btn is-active" id="btn-ctx-mode-unified" data-mode="unified"
+-            role="radio" aria-checked="true">
+-            <span class="ctx-mode-tab-title" data-i18n="models.mode.unifiedTitle">所有模型统一设置</span>
+-            <span class="ctx-mode-tab-desc" data-i18n="models.mode.unifiedDesc">设置一次，所有模型使用相同的上下文长度。</span>
+-          </button>
+-          <button type="button" class="ctx-mode-tab-btn" id="btn-ctx-mode-per-model" data-mode="per_model" role="radio"
+-            aria-checked="false">
+-            <span class="ctx-mode-tab-title" data-i18n="models.mode.perModelTitle">按模型分别设置</span>
+-            <span class="ctx-mode-tab-desc" data-i18n="models.mode.perModelDesc">每个模型分别保存，使用哪个模型，就采用它的上下文长度。</span>
+-          </button>
+-        </div>
+-      </div>
+-
+-      <!-- 3. 模型查看与切换条（仅在分别设置模式下呈现） -->
+-      <div class="ctx-models-toolbar" id="ctx-models-toolbar" hidden>
+-        <div class="ctx-header-model-ctrl">
+-          <span id="ctx-model-selector-role" class="ctx-selector-role-lbl" data-i18n="panel.ctx.viewModel">查看模型</span>
+-          <select id="ctx-model-select" class="ctx-model-select" aria-label="查看模型" data-i18n-aria="panel.ctx.viewModel"
+-            style="display:none"></select>
+-          <div id="ctx-model-dropdown-wrap" class="ag-dropdown-wrapper ctx-header-dropdown">
+-            <div id="ctx-model-dropdown-trigger" class="ag-dropdown-trigger ctx-compact-trigger" tabindex="0"
+-              title="按厂商查看不同模型的上下文设置" data-i18n-title="panel.ctx.viewModelTitle">
+-              <span id="ctx-model-dropdown-label" class="ag-dropdown-label"
+-                data-i18n="panel.ctx.loadingModels">正在读取模型…</span>
+-              <div class="ag-dropdown-arrow">
+-                <svg viewBox="0 0 10 6" width="10" height="6" fill="none" stroke="currentColor" stroke-width="1.5"
+-                  stroke-linecap="round" stroke-linejoin="round">
+-                  <path d="M1 1l4 4 4-4" />
+-                </svg>
+-              </div>
+-            </div>
+-            <div id="ctx-model-dropdown-menu" class="ag-dropdown-menu ctx-model-dropdown-menu"></div>
+-          </div>
+-          <button id="btn-ctx-back-current" class="ctx-mini-link-btn" type="button" hidden title="回到当前会话正在使用的模型"
+-            data-i18n="panel.ctx.backCurrent" data-i18n-title="panel.ctx.backCurrentTitle">回到当前模型</button>
+-        </div>
+-        <div class="ctx-selector-hint" data-i18n="panel.ctx.viewModelHint">仅查看模型配置与实测数据；切换聊天模型请在输入框右侧选择。</div>
+-      </div>
+-
+-      <!-- 4. 模型列表（按厂商分组，仅在分别设置模式下呈现） -->
+-      <div id="ctx-model-list" class="ctx-model-list" aria-label="按厂商分组的模型产品列表" data-i18n-aria="models.list.aria"
+-        hidden></div>
+-
+-      <!-- 5. 选中模型的大卡片（主视图只展示当前模式、当前模型、当前使用长度；详细信息折叠至抽屉） -->
+-      <div id="ctx-model-card" class="ctx-detail-card">
+-        <div id="ctx-conflict-banner" class="ctx-conflict-banner" hidden>
+-          <div class="ctx-conflict-title" data-i18n="models.conflict.title">这个模型的不同档位保存过不同长度，请选一个统一值。</div>
+-          <div id="ctx-conflict-rows" class="ctx-conflict-rows"></div>
+-        </div>
+-
+-        <div class="ctx-card-top">
+-          <div class="ctx-card-vendor-row">
+-            <span class="ctx-card-vendor-left">
+-              <span id="ctx-card-vendor-dot" class="ag-vendor-dot"></span>
+-              <span id="ctx-card-vendor-name" class="ctx-card-vendor-name">—</span>
+-            </span>
+-            <span id="ctx-card-quota-slot" class="ctx-card-quota-slot" hidden></span>
+-          </div>
+-          <div id="ctx-card-product-name" class="ctx-card-product-name" data-i18n="models.card.waiting">等待读取模型…</div>
+-          <div class="ctx-card-efforts-row">
+-            <span id="ctx-card-efforts-list" class="ctx-card-efforts-list"
+-              data-i18n="models.card.effortsEmpty">可用档位：—</span>
+-            <span id="ctx-card-session-effort" class="ctx-card-session-effort" hidden>当前会话：—</span>
+-          </div>
+-        </div>
+-
+-        <!-- 主界面极简核心展示区：当前模式、当前模型、当前使用长度 -->
+-        <div class="ctx-summary-highlight-grid" id="ctx-summary-highlight-grid">
+-          <div class="ctx-summary-item">
+-            <span class="ctx-summary-label" data-i18n="models.summary.mode">当前模式</span>
+-            <span class="ctx-summary-value" id="ctx-summary-mode" data-i18n="models.mode.unifiedTitle">所有模型统一设置</span>
+-          </div>
+-          <div class="ctx-summary-item">
+-            <span class="ctx-summary-label" data-i18n="models.summary.model">当前模型</span>
+-            <span class="ctx-summary-value" id="ctx-summary-model">—</span>
+-          </div>
+-          <div class="ctx-summary-item ctx-summary-item-length">
+-            <span class="ctx-summary-label" data-i18n="models.summary.length">目标设置与状态</span>
+-            <div class="ctx-summary-length-row">
+-              <span class="ctx-summary-value ctx-length-val" id="ctx-summary-length"
+-                data-i18n="models.summary.modelDefault">使用模型默认值</span>
+-              <span class="key-pill pill-muted" id="ctx-summary-status-pill" hidden>待重启生效</span>
+-            </div>
+-          </div>
+-        </div>
+-
+-        <!-- 模型能力与当前生效参考（紧邻预算设置区，不隐藏） -->
+-        <div class="ctx-cap-ref-card" id="ctx-capability-ref">
+-          <div class="ctx-cap-ref-grid">
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.window">模型总窗口</span>
+-              <span class="ctx-cap-val" id="ctx-cap-window">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.output">最大输出</span>
+-              <span class="ctx-cap-val" id="ctx-cap-output">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.modelMax">模型理论输入上限</span>
+-              <span class="ctx-cap-val" id="ctx-cap-model-max">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.clientPolicy">当前客户端限制</span>
+-              <span class="ctx-cap-val" id="ctx-cap-client-policy">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.defaultCap">当前策略默认预算</span>
+-              <span class="ctx-cap-val" id="ctx-cap-default">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.range">当前可采纳输入范围</span>
+-              <span class="ctx-cap-val" id="ctx-cap-range">16,384 – 2,097,152</span>
+-            </div>
+-            <div class="ctx-cap-item ctx-cap-item-wide">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.formulaLbl">来源与计算说明</span>
+-              <span class="ctx-cap-sub" id="ctx-cap-formula">等待读取模型元数据…</span>
+-            </div>
+-          </div>
+-          <div class="ctx-cap-verify-strip" id="ctx-cap-verify-strip">
+-            <span class="ctx-cap-v-cell"><em data-i18n="models.cap.saved">已保存</em> <strong
+-                id="ctx-ref-saved">—</strong></span>
+-            <span class="ctx-cap-v-cell"><em data-i18n="models.cap.sent">最近请求携带</em> <strong
+-                id="ctx-ref-sent">尚无本次验证</strong></span>
+-            <span class="ctx-cap-v-cell"><em data-i18n="models.cap.adopted">后端实际采用</em> <strong
+-                id="ctx-ref-adopted">尚无本次验证</strong></span>
+-          </div>
+-          <div class="ctx-unified-proj" id="ctx-unified-projection" hidden></div>
+-        </div>
+-
+-        <!-- 折叠抽屉：详细信息（配置来源、请求参数、底座状态、实测预算） -->
+-        <div class="ctx-card-details-drawer">
+-          <button id="btn-toggle-card-details" class="drawer-trigger ctx-card-drawer-trigger" aria-expanded="false"
+-            type="button">
+-            <span class="drawer-trigger-left" data-i18n="models.card.detailsToggle">详细信息（配置来源、请求参数与预算验证）</span>
+-            <span id="ctx-card-drawer-arrow" class="drawer-arrow" data-i18n="session.techDrawer.expand">▼ 点击展开明细</span>
+-          </button>
+-          <div id="ctx-card-drawer-body" class="drawer-body ctx-card-drawer-body" style="display:none;">
+-            <div class="ctx-card-metrics">
+-              <div class="ctx-metric-row ctx-metric-saved">
+-                <span class="ctx-metric-label" data-i18n="models.card.saved">已保存</span>
+-                <span class="ctx-metric-value" id="ctx-card-saved" data-i18n="status.savedDefault">未单独设置（使用默认）</span>
+-                <span class="ctx-metric-side" data-i18n="models.card.savedSide">为这个模型记下的长度</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-request">
+-                <span class="ctx-metric-label" data-i18n="models.card.request">请求携带</span>
+-                <span class="ctx-metric-value" id="ctx-card-request">默认透传</span>
+-                <span class="ctx-metric-side" data-i18n="models.card.requestSide">本次请求发送给底座的参数</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-client">
+-                <span class="ctx-metric-label" data-i18n="models.card.client">底座状态</span>
+-                <span class="ctx-metric-value">
+-                  <span id="ctx-card-client" data-i18n="status.badge.reading">状态读取中…</span>
+-                  <span id="ctx-card-client-tag" class="key-pill pill-muted"
+-                    data-i18n="status.badge.reading">状态读取中…</span>
+-                </span>
+-                <span class="ctx-metric-side" data-i18n="models.card.clientSide">底座运行模式</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-observed">
+-                <span class="ctx-metric-label" data-i18n="models.card.observedBudget">实测预算</span>
+-                <div class="ctx-metric-value-col">
+-                  <span class="ctx-metric-value" id="ctx-card-observed-budget"
+-                    data-i18n="models.card.observedBudgetNone">尚未观测</span>
+-                  <span class="ctx-metric-pre-restart" id="ctx-card-pre-restart-budget" hidden></span>
+-                  <span class="ctx-metric-service-limit" id="ctx-card-service-limit" hidden></span>
+-                </div>
+-                <span class="ctx-metric-side" data-i18n="models.card.observedBudgetSide">对话中实际分配</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-convo">
+-                <span class="ctx-metric-label" data-i18n="models.card.convoIdTitle">对应会话</span>
+-                <span class="ctx-metric-value" id="ctx-card-convo">—</span>
+-                <span class="ctx-metric-side">发生调用的会话标识</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-diagnosis">
+-                <span class="ctx-metric-label" data-i18n="models.card.diagnosisTitle">生效诊断</span>
+-                <span class="ctx-metric-value" id="ctx-card-diagnosis">—</span>
+-                <span class="ctx-metric-side">目标值与观测值比对结果</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-observed">
+-                <span class="ctx-metric-label" data-i18n="models.card.observedSpeed">实测速度</span>
+-                <div class="ctx-metric-value-col">
+-                  <div id="ctx-card-observed-speed" class="ctx-speed-effort-lines"
+-                    data-i18n="models.card.observedSpeedNone">暂无实测数据</div>
+-                  <button id="btn-card-goto-speed" class="ctx-inline-link-btn" type="button"
+-                    data-i18n="models.card.gotoSpeed">查看速度对比 ›</button>
+-                </div>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-client" id="ctx-card-tier-caps-row" hidden>
+-                <span class="ctx-metric-label" data-i18n="models.card.tierCaps">档位能力</span>
+-                <div class="ctx-metric-value-col">
+-                  <div id="ctx-card-tier-caps" class="ctx-speed-effort-lines">—</div>
+-                </div>
+-              </div>
+-            </div>
+-            <div id="ctx-card-hints" class="ctx-card-hints" hidden></div>
+-          </div>
+-        </div>
+-      </div>
+-
+-      <!-- 4. 设置操作区 -->
+-      <div class="ctx-adjust-box" id="ctx-adjust-box">
+-        <div class="ctx-preset-grid" id="ctx-preset-grid" role="group" aria-label="上下文长度预设"
+-          data-i18n-aria="models.preset.aria">
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="default" data-ctx-limit="">
+-            <span class="ctx-preset-title" data-i18n="models.preset.default">恢复客户端默认</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.defaultSub">清除请求覆盖，由当前底座策略决定</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="fixed" data-ctx-limit="128000">
+-            <span class="ctx-preset-title">128,000</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.p128Sub">插件预设 · 128,000 tokens</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="fixed" data-ctx-limit="256000">
+-            <span class="ctx-preset-title">256,000</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.p256Sub">插件预设 · 256,000 tokens</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="fixed" data-ctx-limit="512000">
+-            <span class="ctx-preset-title">512,000</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.p512Sub">插件预设 · 512,000 tokens</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="model_max" data-ctx-limit="">
+-            <span class="ctx-preset-title" data-i18n="models.preset.modelMax">按模型最大可用</span>
+-            <span class="ctx-preset-sub" id="ctx-preset-modelmax-sub" data-i18n="models.preset.modelMaxSub">总窗口 -
+-              最大输出（需元数据）</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="dynamic" data-ctx-limit="">
+-            <span class="ctx-preset-title" data-i18n="models.preset.dynamic">动态跟随</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.dynamicSub">不固定数值，按底座动态计算</span>
+-          </button>
+-        </div>
+-
+-        <div class="ctx-custom-row">
+-          <label for="ctx-custom-limit-input" class="ctx-small-label" data-i18n="models.custom.label">自定义长度</label>
+-          <div class="ctx-custom-input-wrap">
+-            <input id="ctx-custom-limit-input" class="ctx-custom-input" type="text" inputmode="numeric"
+-              placeholder="输入整数，例如 300000" data-i18n-placeholder="models.custom.placeholder" autocomplete="off">
+-            <span class="ctx-input-unit">tokens</span>
+-          </div>
+-        </div>
+-        <div id="ctx-limit-validation" class="ctx-validation-msg" data-i18n="models.validation.defaultRange">
+-          可设置范围：16,384 – 2,097,152 tokens。</div>
+-
+-        <div class="ctx-pref-actions">
+-          <button id="btn-save-model-ctx" class="unlock-btn unlock-btn-secondary" type="button"
+-            data-i18n="models.btn.save">保存</button>
+-          <button id="btn-apply-unlock" class="unlock-btn unlock-btn-primary" type="button"
+-            data-i18n="models.btn.saveApply">保存并应用</button>
+-          <button id="btn-reset-model-ctx" class="ctx-text-action-btn" type="button"
+-            data-i18n="models.btn.reset">恢复默认</button>
+-        </div>
+-
+-        <div id="ctx-reset-notice" class="ctx-reset-notice" hidden></div>
+-
+-        <div class="ctx-plain-help">
+-          <div data-i18n="models.help.line1">保存：记住当前模型的设置。底座引擎：一次性解除 256K 限制并启用动态跟随。</div>
+-          <div data-i18n="models.help.line2">各模型根据保存的设置独立生效，多会话与模型切换互不干扰。</div>
+-        </div>
+-
+-        <div id="unlock-result-box" class="unlock-result-box" style="display:none;">
+-          <div id="unlock-result-text" class="unlock-result-text"></div>
+-          <div id="unlock-result-actions" class="unlock-result-actions" hidden>
+-            <button id="btn-unlock-result-restart" class="unlock-btn unlock-btn-primary" type="button" hidden
+-              data-i18n="models.restartBtn">重启客户端使设置生效</button>
+-            <button id="btn-unlock-result-retry" class="unlock-btn unlock-btn-secondary" type="button" hidden
+-              data-i18n="models.btn.retryApply">重新检测并应用</button>
+-          </div>
+-          <div id="unlock-result-manual" class="ctx-result-manual-note" hidden data-i18n="models.manualRestart">
+-            请手动重启：关闭所有 Antigravity 窗口（包括托盘图标里的“退出”），再重新打开 Antigravity。</div>
+-        </div>
+-      </div>
+-
+-      <!-- 5. 唯一保留的折叠区：详细说明 -->
 -      <div class="tech-drawer" id="context-unlock-drawer">
--        <button id="btn-toggle-unlock" class="drawer-trigger" aria-expanded="false" type="button">
+-        <button id="btn-toggle-unlock-details" class="drawer-trigger" aria-expanded="false" type="button">
 -          <span class="drawer-trigger-left">
--            <span>⚡ 上下文加长（解除 256K 限制 / 实验特性）</span>
--            <span id="unlock-badge" class="key-pill pill-muted" style="margin-left:6px;font-size:10.5px;">读取中…</span>
+-            <span data-i18n="models.details.title">详细说明</span>
 -          </span>
--          <span id="unlock-drawer-arrow" class="drawer-arrow">▼ 展开</span>
+-          <span id="unlock-drawer-arrow" class="drawer-arrow" data-i18n="drawer.expand">▼ 展开</span>
 -        </button>
 -        <div id="unlock-drawer-body" class="drawer-body" style="display:none;">
 -          <div class="unlock-panel-content">
--            <div class="unlock-status-row">
--              <div class="unlock-status-meta">
--                <div class="unlock-label">当前后端补丁状态</div>
--                <div id="unlock-status-desc" class="unlock-desc">正在分析当前 Antigravity 后端二进制…</div>
--              </div>
--            </div>
--
 -            <div class="unlock-notice">
--              <div class="unlock-notice-title">⚠️ 技术边界与重要说明</div>
--              <ul class="unlock-notice-list">
--                <li>本功能为非官方本地技术修补，通过移除 <code>language_server</code> 中的 256,000 封顶截断序列，恢复按模型物理窗口动态分配（如 1M 模型最高 983,040 tokens）。</li>
--                <li><strong>桌面端差异</strong>：桌面端为独立后端服务架构，仅解除底层压缩硬上限，无 CLI 档位切换菜单；亦无法突破模型服务端支持的最大物理窗口。</li>
--                <li><strong>更新与账号风险</strong>：官方更新客户端后可能需重新应用；账号风险未知，无法承诺“不会封号”。</li>
--              </ul>
+-              <ol class="unlock-notice-list ctx-detail-ol">
+-                <li data-i18n-html="models.details.li1"><strong>底座解锁与按模型请求注入的分工</strong>：客户端语言服务原版会对默认与回落预算实施 256,000
+-                  tokens 钳位（256K 限制点），并允许远程实验覆写。底座解锁用于一次性开启「动态跟随（Dynamic）」默认策略并屏蔽远程实验覆写；每次发送消息时，插件再按当次请求实际选中的模型在请求参数
+-                  <code>checkpointConfig.maxTokenLimit</code> 中写入你设定的预算。若设定超过 256,000 tokens，仍需底座处于「动态跟随」已解锁状态。</li>
+-                <li data-i18n-html="models.details.li2">
+-                  <strong>多项安全检查点说明</strong>：客户端包含默认/钳位双检查点、远程实验覆写拦截点以及上下文窗口序列上限检查点；本插件只依赖本地偏好配合每次请求参数写入实现按模型隔离，不会在切换模型时反复改写宿主程序文件。
+-                </li>
+-                <li data-i18n-html="models.details.li3"><strong>恢复客户端默认 vs
+-                    按模型最大可用</strong>：「恢复客户端默认」仅清除请求级覆盖参数，把决定权交回当前语言服务的全局策略（若已开启「动态跟随」则走模型动态默认，无法逐模型单切回原版 256K
+-                  钳位）；「按模型最大可用」则按 IDE 元数据公式 <code>maxTokens - maxOutputTokens</code> 计算并显式发送该整数上限。</li>
+-                <li data-i18n-html="models.details.li4"><strong>几个数字的区别</strong>：
+-                  <div>模型总窗口 / 最大输出：来自 IDE 模型目录与步骤元数据，不代表实际已分配配额。</div>
+-                  <div>已保存：你为当前模型或统一模式保存的目标值。</div>
+-                  <div>最近请求携带 / 后端实际采用：按当前会话与模型轮次严格隔离对照，尚无对应发送时显示「尚无本次验证」。</div>
+-                  <div>服务端报错上限：仅当请求被服务端拒绝且报错给出明确数字时出现。</div>
+-                </li>
+-                <li data-i18n-html="models.details.li5"><strong>工程范围与预设说明</strong>：128,000 / 256,000 / 512,000
+-                  属于插件预设；合法自定义工程范围为 16,384 – 2,097,152 任意整数 tokens，真实超长请求能否被服务端接受取决于各模型自身配额与风控策略。</li>
+-              </ol>
 -            </div>
 -
 -            <div class="unlock-actions-row">
--              <button id="btn-apply-unlock" class="unlock-btn unlock-btn-primary" type="button">
--                <span>⚡ 立即应用加长补丁</span>
--              </button>
--              <button id="btn-restore-unlock" class="unlock-btn unlock-btn-secondary" type="button">
--                <span>🔄 恢复官方原版</span>
--              </button>
--              <button id="btn-refresh-unlock" class="unlock-btn unlock-btn-secondary" type="button" title="重新检测状态">
--                <span>🔄 刷新</span>
--              </button>
+-              <button id="btn-restore-unlock" class="unlock-btn unlock-btn-secondary" type="button"
+-                data-i18n="models.btn.restoreOriginal">客户端恢复原始设置</button>
+-              <button id="btn-refresh-unlock" class="unlock-btn unlock-btn-secondary" type="button" title="重新检测状态"
+-                data-i18n="models.btn.refreshStatus" data-i18n-title="models.btn.refreshStatus">刷新状态</button>
 -            </div>
 -
--            <div id="unlock-result-box" class="unlock-result-box" style="display:none;">
--              <div id="unlock-result-text" class="unlock-result-text"></div>
--            </div>
--
+-            <div id="unlock-status-desc" class="unlock-desc" style="margin-top:8px;"
+-              data-i18n="models.status.detecting">正在检测当前 Antigravity 状态…</div>
 -            <dl class="unlock-meta-dl">
--              <dt>目标后端</dt><dd id="unlock-meta-target">—</dd>
--              <dt>目标架构</dt><dd id="unlock-meta-arch">—</dd>
--              <dt>文件哈希 (SHA-256)</dt><dd id="unlock-meta-sha">—</dd>
--              <dt>原版备份状态</dt><dd id="unlock-meta-backup">—</dd>
+-              <dt data-i18n="models.meta.mode">当前配置 / 实测</dt>
+-              <dd id="unlock-meta-mode">—</dd>
+-              <dt data-i18n="models.meta.target">目标进程</dt>
+-              <dd id="unlock-meta-target">—</dd>
+-              <dt data-i18n="models.meta.arch">系统架构</dt>
+-              <dd id="unlock-meta-arch">—</dd>
+-              <dt data-i18n="models.meta.backup">原版备份状态</dt>
+-              <dd id="unlock-meta-backup">—</dd>
 -            </dl>
 -
 -            <div class="unlock-credit-bar">
 -              <div class="unlock-credit-left">
--                <span class="unlock-credit-lbl">解锁方案来源：</span>
--                <a id="link-unlock-author" href="https://linux.do/t/topic/3117832" target="_blank" rel="noopener noreferrer" class="unlock-author-link" role="link" tabindex="0" title="点击在系统默认浏览器中打开原作者帖子">原作者帖子 (Linux.do @23375) ↗</a>
--                <button id="btn-copy-unlock-link" class="unlock-copy-link-btn" type="button" title="复制原作者帖子链接">📋 复制链接</button>
+-                <span class="unlock-credit-lbl" data-i18n="models.credit.source">方案来源：</span>
+-                <a id="link-unlock-author" href="https://linux.do/t/topic/3117832" target="_blank"
+-                  rel="noopener noreferrer" class="unlock-author-link" role="link" tabindex="0"
+-                  title="点击在系统默认浏览器中打开原作者帖子" data-i18n="models.credit.author">原作者帖子 (Linux.do @23375) ↗</a>
+-                <button id="btn-copy-unlock-link" class="unlock-copy-link-btn" type="button" title="复制原作者帖子链接"
+-                  data-i18n="models.credit.copy">📋 复制链接</button>
 -              </div>
--              <span class="unlock-adapter-note">本项目负责 Node.js 原生适配与客户端集成</span>
+-              <span class="unlock-adapter-note" data-i18n="models.credit.adapter">本项目负责 Node.js 适配与集成</span>
 -            </div>
 -            <div id="unlock-link-toast" class="unlock-link-toast" style="display:none;" role="status"></div>
 -          </div>
 -        </div>
 -      </div>
+-    </div>
 -
-       <!-- 二级交互折叠区: 客户端界面汉化 (AntigravityChinese) -->
-       <div class="tech-drawer" id="chinese-i18n-drawer">
-         <button id="btn-toggle-chinese" class="drawer-trigger" aria-expanded="false" type="button">
-@@ -1531,114 +1467,6 @@
+     <!-- 分页 3: 速度对比 -->
+     <div id="pane-ctx-speed" class="ctx-tab-pane" role="tabpanel" aria-labelledby="tab-ctx-speed" hidden>
+       <div class="ctx-speed-toolbar">
+@@ -2588,74 +2198,8 @@
+         主动测试：未接通。目前没有可靠的指定模型调用入口，暂时只能使用日常对话的实测记录。</div>
+     </div>
+ 
+-    <!-- 设置与系统配置 (第四分页: 配置 / setting) -->
++    <!-- 设置与系统配置 (分页 3: 配置 / setting) -->
+     <div id="pane-ctx-settings" class="ctx-tab-pane" role="tabpanel" aria-labelledby="tab-ctx-settings" hidden>
+-      <!-- 1. 一键推荐配置与总览（默认不自动应用，需用户预览勾选并确认） -->
+-      <div class="ctx-settings-card" id="enhance-preset-card">
+-        <div class="ctx-settings-card-hdr">
+-          <div class="ctx-settings-card-title" data-i18n="enhance.preset.title">✨ 一键推荐配置（按需勾选预览）</div>
+-          <span id="enhance-global-badge" class="key-pill pill-muted" data-i18n="settings.common.reading">读取中…</span>
+-        </div>
+-        <div class="ctx-settings-card-desc" data-i18n="enhance.preset.desc">正常安装默认保持客户端原样。下方列出推荐增强组合；只有你勾选并确认后才会实际写入。
+-        </div>
+-        <div class="ctx-preset-checklist">
+-          <label class="ctx-preset-check-item">
+-            <input id="chk-rec-prompt" type="checkbox" checked>
+-            <div class="ctx-preset-check-meta">
+-              <strong data-i18n="enhance.preset.itemPrompt">系统提示词 4 档（极简防幻觉）</strong>
+-              <span data-i18n="enhance.preset.itemPromptSub">精简模板套话并保留真实工具契约；仅作用于系统提示，不能保证模型永不犯错。</span>
+-            </div>
+-          </label>
+-          <label class="ctx-preset-check-item">
+-            <input id="chk-rec-title" type="checkbox" checked>
+-            <div class="ctx-preset-check-meta">
+-              <strong data-i18n="enhance.preset.itemTitle">自动中文会话标题</strong>
+-              <span data-i18n="enhance.preset.itemTitleSub">新会话自动生成简体中文标题（等长替换指令文本，不破坏结构）。</span>
+-            </div>
+-          </label>
+-          <label class="ctx-preset-check-item">
+-            <input id="chk-rec-lang" type="checkbox" checked>
+-            <div class="ctx-preset-check-meta">
+-              <strong data-i18n="enhance.preset.itemLang">客户端简体中文界面（Antigravity 本身）</strong>
+-              <span data-i18n="enhance.preset.itemLangSub">仅改变桌面端壳层中文，不影响你选择的插件面板语言。</span>
+-            </div>
+-          </label>
+-          <label class="ctx-preset-check-item">
+-            <input id="chk-rec-ctx" type="checkbox" checked>
+-            <div class="ctx-preset-check-meta">
+-              <strong data-i18n="enhance.preset.itemCtx">上下文模式：跟随模型</strong>
+-              <span data-i18n="enhance.preset.itemCtxSub">按模型各自支持的最大长度运行，不硬锁固定 983,040 或 512,000。</span>
+-            </div>
+-          </label>
+-        </div>
+-        <div class="ctx-settings-card-actions">
+-          <button id="btn-enhance-preset-apply" class="unlock-btn unlock-btn-primary" type="button"
+-            data-i18n="enhance.preset.applyBtn">应用所选推荐配置</button>
+-          <button id="btn-enhance-restore-all" class="unlock-btn unlock-btn-danger" type="button"
+-            data-i18n="enhance.restoreAll.btn">全部恢复官方默认</button>
+-        </div>
+-        <div id="enhance-preset-confirm" class="ctx-enhance-confirm" hidden>
+-          <div id="enhance-preset-confirm-text"></div>
+-          <div class="ctx-enhance-confirm-actions">
+-            <button id="btn-enhance-confirm-cancel" class="unlock-btn unlock-btn-secondary" type="button"
+-              data-i18n="models.restartConfirm.cancel">取消</button>
+-            <button id="btn-enhance-confirm-go" class="unlock-btn unlock-btn-primary" type="button"
+-              data-i18n="enhance.confirm.go">确认应用</button>
+-          </div>
+-        </div>
+-        <div id="enhance-global-result" class="unlock-result-box" style="display:none;">
+-          <div id="enhance-global-result-text" class="unlock-result-text"></div>
+-          <div id="enhance-global-result-actions" class="unlock-result-actions" hidden>
+-            <button id="btn-enhance-restart-ls" class="unlock-btn unlock-btn-secondary" type="button"
+-              data-i18n="enhance.btn.restartLs">重启语言服务</button>
+-            <button id="btn-enhance-restart-host" class="unlock-btn unlock-btn-primary" type="button"
+-              data-i18n="models.restartBtn">重启客户端使设置生效</button>
+-          </div>
+-          <div id="enhance-global-manual-note" class="ctx-result-manual-note" hidden data-i18n="models.manualRestart">
+-            请手动重启：关闭所有 Antigravity 窗口（包括托盘图标里的“退出”），再重新打开 Antigravity。</div>
+-        </div>
+-      </div>
+-
+       <!-- 2. 客户端界面语言与品牌标题 (Antigravity 本身) -->
+       <div class="ctx-settings-card" id="client-brand-lang-card">
+         <div class="ctx-settings-card-hdr">
+@@ -2690,130 +2234,14 @@
+           <button id="btn-apply-brand-title" class="unlock-btn unlock-btn-secondary" type="button"
+             data-i18n="enhance.brand.applyBtn">保存品牌选择并应用</button>
+         </div>
+-      </div>
+-
+-      <!-- 3. 回答与工具使用规则 (原防幻觉档位) 与自动中文标题 -->
+-      <div class="ctx-settings-card" id="enhance-prompt-card">
+-        <div class="ctx-settings-card-hdr">
+-          <div class="ctx-settings-card-title" data-i18n="enhance.prompt.title">🧠 回答与工具使用规则</div>
+-          <span id="enhance-prompt-badge" class="key-pill pill-muted" data-i18n="settings.common.reading">读取中…</span>
+-        </div>
+-        <!-- 第一层：默认可见的白话说明 -->
+-        <div class="ctx-plain-help"
+-          style="margin:4px 0 8px 0;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);border-radius:6px;padding:8px 10px;">
+-          <div style="font-size:11.5px;line-height:1.55;color:var(--ag-text-primary);"
+-            data-i18n="enhance.prompt.plainIntro">
+-            调整客户端给 AI 的工作说明，让它更重视证据：没读过的文件不猜，没运行的测试不说通过。它不会升级模型底层能力，也不能保证回答永远正确。
+-          </div>
+-          <div id="enhance-tier-current-desc"
+-            style="font-size:11px;line-height:1.5;color:var(--ag-text-secondary);margin-top:4px;">
+-            当前档位说明加载中…
+-          </div>
+-        </div>
+-        <div class="ctx-enhance-status-grid">
+-          <div class="ctx-enhance-stat">
+-            <div class="ctx-enhance-stat-lbl" data-i18n="enhance.stat.prompt">当前检测档位</div>
+-            <div id="enhance-stat-prompt" class="ctx-enhance-stat-val">—</div>
+-          </div>
+-          <div class="ctx-enhance-stat">
+-            <div class="ctx-enhance-stat-lbl" data-i18n="enhance.stat.title">自动中文标题</div>
+-            <div id="enhance-stat-title" class="ctx-enhance-stat-val">—</div>
+-          </div>
+-          <div class="ctx-enhance-stat">
+-            <div class="ctx-enhance-stat-lbl" data-i18n="enhance.stat.evidence">证据检测状态</div>
+-            <div id="enhance-stat-slots" class="ctx-enhance-stat-val">—</div>
+-          </div>
+-          <div class="ctx-enhance-stat">
+-            <div class="ctx-enhance-stat-lbl" data-i18n="enhance.stat.backup">原版内核备份</div>
+-            <div id="enhance-stat-backup" class="ctx-enhance-stat-val">—</div>
+-          </div>
+-        </div>
+-        <div id="enhance-tier-grid" class="ctx-tier-grid" role="group" aria-label="规则档位"
+-          data-i18n-aria="enhance.prompt.aria">
+-          <button id="enhance-tier-0" class="ctx-tier-btn" type="button" data-enhance-tier="0">
+-            <span class="ctx-tier-num">0</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.0.short">原版</span>
+-          </button>
+-          <button id="enhance-tier-1" class="ctx-tier-btn" type="button" data-enhance-tier="1">
+-            <span class="ctx-tier-num">1</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.1.short">基础</span>
+-          </button>
+-          <button id="enhance-tier-2" class="ctx-tier-btn" type="button" data-enhance-tier="2">
+-            <span class="ctx-tier-num">2</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.2.short">精简</span>
+-          </button>
+-          <button id="enhance-tier-3" class="ctx-tier-btn" type="button" data-enhance-tier="3">
+-            <span class="ctx-tier-num">3</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.3.short">深度</span>
+-          </button>
+-          <button id="enhance-tier-4" class="ctx-tier-btn" type="button" data-enhance-tier="4">
+-            <span class="ctx-tier-num">4</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.4.short">极简</span>
+-          </button>
+-        </div>
+-        <div id="enhance-tier-matrix" class="ctx-tier-matrix">
+-          <div id="enhance-tier-matrix-title" class="ctx-tier-matrix-title">—</div>
+-          <div class="ctx-tier-matrix-row">
+-            <span class="ctx-tier-matrix-k" data-i18n="enhance.matrix.keeps">保留</span>
+-            <span id="enhance-tier-keeps" class="ctx-tier-matrix-v">—</span>
+-          </div>
+-          <div class="ctx-tier-matrix-row">
+-            <span class="ctx-tier-matrix-k" data-i18n="enhance.matrix.clears">清空</span>
+-            <span id="enhance-tier-clears" class="ctx-tier-matrix-v">—</span>
+-          </div>
+-          <div class="ctx-tier-matrix-row">
+-            <span class="ctx-tier-matrix-k" data-i18n="enhance.matrix.replaces">替换</span>
+-            <span id="enhance-tier-replaces" class="ctx-tier-matrix-v">—</span>
+-          </div>
+-          <div class="ctx-tier-matrix-row">
+-            <span class="ctx-tier-matrix-k" data-i18n="enhance.matrix.meaning">对你的影响</span>
+-            <span id="enhance-tier-meaning" class="ctx-tier-matrix-v">—</span>
+-          </div>
+-        </div>
+-        <div id="enhance-hallucination-note" class="ctx-tier-note-warn" data-i18n="enhance.hallucinationNote">
+-          说明：规则档位通过精简冗余指引并强化真实工具核对来规范行为。高档位删减提示模板中的工作指引，不等于删除用户文件或工件本身；是否影响具体能力需在对话中实际验证。</div>
+-        <label class="ctx-toggle-row">
+-          <div class="ctx-toggle-row-text">
+-            <span class="ctx-toggle-row-title" data-i18n="enhance.titlePatch.label">自动生成简体中文会话标题</span>
+-            <span class="ctx-toggle-row-sub" data-i18n="enhance.titlePatch.sub">等长替换会话命名提示词，不破坏原有长度对齐；支持随时改回官方英文。</span>
+-          </div>
+-          <input id="chk-enhance-chinese-title" type="checkbox">
+-        </label>
+-        <div class="ctx-settings-card-actions">
+-          <button id="btn-enhance-apply-prompt" class="unlock-btn unlock-btn-primary" type="button"
+-            data-i18n="enhance.btn.applyPrompt">应用提示词与标题设置</button>
+-          <button id="btn-enhance-refresh" class="unlock-btn unlock-btn-secondary" type="button"
+-            data-i18n="models.btn.refreshStatus">刷新状态</button>
+-        </div>
+-        <div id="enhance-prompt-result" class="unlock-result-box" style="display:none;">
+-          <div id="enhance-prompt-result-text" class="unlock-result-text"></div>
+-        </div>
+-
+-        <!-- 第二层：可展开的“详细说明” -->
+-        <div class="tech-drawer" id="enhance-details-drawer" style="margin-top:4px">
+-          <button id="btn-toggle-enhance-details" class="drawer-trigger" aria-expanded="false" type="button">
+-            <span class="drawer-trigger-left" data-i18n="enhance.details.toggle">详细说明：来源范围、三层状态与检测依据</span>
+-            <span id="enhance-details-arrow" class="drawer-arrow" data-i18n="drawer.expand">▼ 展开</span>
+-          </button>
+-          <div id="enhance-details-body" class="drawer-body" style="display:none;">
+-            <div class="unlock-panel-content">
+-              <div class="unlock-notice">
+-                <div class="unlock-desc" data-i18n="enhance.details.body">方案来源：PR #4 (Jia131313) 与 PR #3 (anyu0804 /
+-                  Linux.do @23375)，由本项目进行本地适配、工具契约安全核对与多语言整合。<br><br>
+-                  <strong>修改目标程序</strong>：仅修改本地桌面端语言服务核心程序内嵌模板表；不改动任何云端模型，亦不影响 CLI 以外的外部环境。<br><br>
+-                  <strong>三层状态区别</strong>：<br>
+-                  1. <strong>写入状态</strong>：检测目标程序磁盘文件已覆写指定槽位（安全空格对齐填充，零结构偏移）。<br>
+-                  2. <strong>服务加载状态</strong>：需完全退出并重启客户端后，由新启动的语言服务进程加载读取。<br>
+-                  3. <strong>行为效果验证</strong>：提示词仅是 AI 的工作指南，不能保证永不犯错；实际表现需由用户在真实会话中体验，不宣称数学上的绝对消除。
+-                </div>
+-              </div>
+-              <div id="enhance-binary-list" class="unlock-desc" style="margin-top:6px;"></div>
+-              <div class="unlock-credit-row">
+-                <span class="unlock-credit-lbl"
+-                  data-i18n="enhance.details.credit">恢复操作：点击上方“全部恢复官方默认”将无损还原官方备份模板。</span>
+-              </div>
+-            </div>
++        <div id="enhance-global-result" class="unlock-result-box" style="display:none;">
++          <div id="enhance-global-result-text" class="unlock-result-text"></div>
++          <div id="enhance-global-result-actions" class="unlock-result-actions" hidden>
++            <button id="btn-enhance-restart-host" class="unlock-btn unlock-btn-primary" type="button"
++              data-i18n="models.restartBtn">重启客户端使设置生效</button>
+           </div>
++          <div id="enhance-global-manual-note" class="ctx-result-manual-note" hidden data-i18n="models.manualRestart">
++            请手动重启：关闭所有 Antigravity 窗口（包括托盘图标里的“退出”），再重新打开 Antigravity。</div>
          </div>
        </div>
+     </div>
+@@ -2825,149 +2253,6 @@
+     <div id="chinese-drawer-body" style="display:none;"><span id="chinese-drawer-arrow"></span></div>
+   </div>
  
--      <!-- 二级交互折叠区: 免 TUN 网络直连 (AntigravityProxyNoTun) -->
--      <div class="tech-drawer" id="proxy-notun-drawer">
--        <button id="btn-toggle-proxy" class="drawer-trigger" aria-expanded="false" type="button">
--          <span class="drawer-trigger-left">
--            <span>🌐 免 TUN 网络直连（本地代理）</span>
--            <span id="proxy-badge" class="key-pill pill-muted" style="margin-left:6px;font-size:10.5px;">读取中…</span>
--          </span>
--          <span id="proxy-drawer-arrow" class="drawer-arrow">▼ 展开</span>
--        </button>
--        <div id="proxy-drawer-body" class="drawer-body" style="display:none;">
--          <div class="unlock-panel-content">
--            <div class="unlock-status-row">
--              <div class="unlock-status-meta">
--                <div class="unlock-label">代理直连配置与状态</div>
--                <div id="proxy-status-desc" class="unlock-desc">正在核对代理设置…</div>
--              </div>
--            </div>
--            <div style="display:flex;flex-direction:column;gap:8px;margin:8px 0;">
--              <label style="font-size:11px;color:var(--ag-text-secondary);display:flex;flex-direction:column;gap:4px;">
--                <span>本地代理地址 (例如 http://127.0.0.1:7897 或 socks5://...)：</span>
--                <input id="input-proxy-url" type="text" class="unlock-input" style="padding:4px 8px;font-size:11px;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);color:var(--ag-text-primary);border-radius:4px;" value="http://127.0.0.1:7897" />
--              </label>
--              <label style="font-size:11px;color:var(--ag-text-secondary);display:flex;flex-direction:column;gap:4px;">
--                <span>绕过代理列表 (NO_PROXY)：</span>
--                <input id="input-proxy-bypass" type="text" class="unlock-input" style="padding:4px 8px;font-size:11px;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);color:var(--ag-text-primary);border-radius:4px;" value="localhost,127.0.0.1,::1,<local>" />
--              </label>
--            </div>
--            <div class="unlock-actions" style="display:flex;gap:8px;">
--              <button id="btn-test-proxy" class="unlock-btn unlock-btn-secondary" type="button">🔍 测试代理连通性</button>
--              <button id="btn-toggle-proxy-module" class="unlock-btn unlock-btn-primary" type="button">切换代理直连</button>
--            </div>
--            <div id="proxy-test-result" style="font-size:11px;margin-top:6px;display:none;color:var(--ag-text-secondary);"></div>
+-  <!-- 5. 免 TUN 网络直连 (AntigravityProxyNoTun) -->
+-  <div class="tech-drawer" id="proxy-notun-drawer">
+-    <button id="btn-toggle-proxy" class="drawer-trigger" aria-expanded="false" type="button">
+-      <span class="drawer-trigger-left">
+-        <span data-i18n="settings.proxy.title">🌐 免 TUN 网络直连（本地代理）</span>
+-        <span id="proxy-badge" class="key-pill pill-muted" style="margin-left:6px;font-size:10.5px;"
+-          data-i18n="settings.common.reading">读取中…</span>
+-      </span>
+-      <span id="proxy-drawer-arrow" class="drawer-arrow" data-i18n="drawer.expand">▼ 展开</span>
+-    </button>
+-    <div id="proxy-drawer-body" class="drawer-body" style="display:none;">
+-      <div class="unlock-panel-content">
+-        <div class="unlock-status-row">
+-          <div class="unlock-status-meta">
+-            <div class="unlock-label" data-i18n="settings.proxy.statusLabel">代理直连配置与状态</div>
+-            <div id="proxy-status-desc" class="unlock-desc" data-i18n="settings.proxy.checking">正在核对代理设置…</div>
+-          </div>
+-        </div>
+-        <div style="display:flex;flex-direction:column;gap:8px;margin:8px 0;">
+-          <label style="font-size:11px;color:var(--ag-text-secondary);display:flex;flex-direction:column;gap:4px;">
+-            <span data-i18n="settings.proxy.urlLabel">本地代理地址 (例如 http://127.0.0.1:7897 或 socks5://...)：</span>
+-            <input id="input-proxy-url" type="text" class="unlock-input"
+-              style="padding:4px 8px;font-size:11px;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);color:var(--ag-text-primary);border-radius:4px;"
+-              value="http://127.0.0.1:7897" />
+-          </label>
+-          <label style="font-size:11px;color:var(--ag-text-secondary);display:flex;flex-direction:column;gap:4px;">
+-            <span data-i18n="settings.proxy.bypassLabel">绕过代理列表 (NO_PROXY)：</span>
+-            <input id="input-proxy-bypass" type="text" class="unlock-input"
+-              style="padding:4px 8px;font-size:11px;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);color:var(--ag-text-primary);border-radius:4px;"
+-              value="localhost,127.0.0.1,::1,<local>" />
+-          </label>
+-        </div>
+-        <div class="unlock-actions" style="display:flex;gap:8px;flex-wrap:wrap;">
+-          <button id="btn-test-proxy" class="unlock-btn unlock-btn-secondary" type="button"
+-            data-i18n="settings.proxy.testBtn">🔍 测试代理连通性</button>
+-          <button id="btn-save-proxy-config" class="unlock-btn unlock-btn-secondary" type="button" hidden
+-            data-i18n="mod.proxy.btnSave">保存代理设置</button>
+-          <button id="btn-toggle-proxy-module" class="unlock-btn unlock-btn-primary" type="button"
+-            data-i18n="mod.proxy.btnEnable">开启免 TUN 直连</button>
+-        </div>
+-        <div id="proxy-test-result" style="font-size:11px;margin-top:6px;display:none;color:var(--ag-text-secondary);">
+-        </div>
+-      </div>
+-    </div>
+-  </div>
+-
+-  <!-- 6. 面板背景与指标颜色自定义 -->
+-  <div class="tech-drawer">
+-    <button id="btn-toggle-colors" class="drawer-trigger" aria-expanded="false" type="button">
+-      <span class="drawer-trigger-left"><span data-i18n="settings.colors.title">🎨 指标与背景颜色自定义（默认跟随主题）</span></span>
+-      <span id="color-drawer-arrow" class="drawer-arrow" data-i18n="drawer.expandSettings">▼ 展开设置</span>
+-    </button>
+-    <div id="color-drawer-body" class="drawer-body" style="display:none;">
+-      <div class="color-grid">
+-        <div class="color-item" style="grid-column:1 / -1">
+-          <span class="color-item-lbl" data-i18n="settings.colors.panelBg">面板与菜单统一背景色（0级跟随 / 自定义）</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-panelBg" class="color-picker" type="color" value="#181818"
+-              data-i18n-aria="settings.colors.panelBg" aria-label="面板背景色" />
+-            <button id="swatch-panelBg" class="color-swatch-btn" type="button" data-color-slot="panelBg"
+-              data-color-label="面板与菜单背景色" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-panelBg" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.ringUsed">圆环已用部分</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-ringUsed" class="color-picker" type="color" value="#e6e6eb"
+-              data-i18n-aria="settings.colors.ringUsed" aria-label="上下文圆环已用部分颜色" />
+-            <button id="swatch-ringUsed" class="color-swatch-btn" type="button" data-color-slot="ringUsed"
+-              data-color-label="圆环已用部分" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-ringUsed" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.ringTrack">圆环轨道</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-ringTrack" class="color-picker" type="color" value="#52525b"
+-              data-i18n-aria="settings.colors.ringTrack" aria-label="圆环轨道颜色" />
+-            <button id="swatch-ringTrack" class="color-swatch-btn" type="button" data-color-slot="ringTrack"
+-              data-color-label="圆环轨道" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-ringTrack" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.contextText">上下文用量文字</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-contextText" class="color-picker" type="color" value="#ececef"
+-              data-i18n-aria="settings.colors.contextText" aria-label="上下文用量文字颜色" />
+-            <button id="swatch-contextText" class="color-swatch-btn" type="button" data-color-slot="contextText"
+-              data-color-label="上下文用量文字" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-contextText" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.speedText">输出速度</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-speedText" class="color-picker" type="color" value="#38bdf8"
+-              data-i18n-aria="settings.colors.speedText" aria-label="输出速度颜色" />
+-            <button id="swatch-speedText" class="color-swatch-btn" type="button" data-color-slot="speedText"
+-              data-color-label="输出速度" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-speedText" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.tokenTotal">累计 token 用量</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-tokenTotal" class="color-picker" type="color" value="#c084fc"
+-              data-i18n-aria="settings.colors.tokenTotal" aria-label="累计 token 用量颜色" />
+-            <button id="swatch-tokenTotal" class="color-swatch-btn" type="button" data-color-slot="tokenTotal"
+-              data-color-label="累计 token 用量" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-tokenTotal" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.tokenAccent">其他 token 指标</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-tokenAccent" class="color-picker" type="color" value="#a78bfa"
+-              data-i18n-aria="settings.colors.tokenAccent" aria-label="其他 token 指标颜色" />
+-            <button id="swatch-tokenAccent" class="color-swatch-btn" type="button" data-color-slot="tokenAccent"
+-              data-color-label="其他 token 指标" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-tokenAccent" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
 -          </div>
 -        </div>
 -      </div>
--
--      <!-- 二级交互折叠区 1: 面板背景与指标颜色自定义（就近放置于面板 B 内部） -->
--      <div class="tech-drawer">
--        <button id="btn-toggle-colors" class="drawer-trigger" aria-expanded="false" type="button">
--          <span class="drawer-trigger-left"><span>🎨 指标与背景颜色自定义（默认跟随主题）</span></span>
--          <span id="color-drawer-arrow" class="drawer-arrow">▼ 展开设置</span>
--        </button>
--        <div id="color-drawer-body" class="drawer-body" style="display:none;">
--          <div class="color-grid">
--            <div class="color-item" style="grid-column:1 / -1">
--              <span class="color-item-lbl">面板与菜单统一背景色（0级跟随 / 自定义）</span>
--              <div class="color-item-ctrls">
--                <input id="color-panelBg" class="color-picker" type="color" value="#181818" aria-label="面板背景色" />
--                <button id="swatch-panelBg" class="color-swatch-btn" type="button" data-color-slot="panelBg" data-color-label="面板与菜单背景色" title="点击打开颜色选取器"></button>
--                <button id="reset-panelBg" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
--              </div>
--            </div>
--            <div class="color-item">
--              <span class="color-item-lbl">圆环已用部分</span>
--              <div class="color-item-ctrls">
--                <input id="color-ringUsed" class="color-picker" type="color" value="#e6e6eb" aria-label="上下文圆环已用部分颜色" />
--                <button id="swatch-ringUsed" class="color-swatch-btn" type="button" data-color-slot="ringUsed" data-color-label="圆环已用部分" title="点击打开颜色选取器"></button>
--                <button id="reset-ringUsed" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
--              </div>
--            </div>
--            <div class="color-item">
--              <span class="color-item-lbl">圆环轨道</span>
--              <div class="color-item-ctrls">
--                <input id="color-ringTrack" class="color-picker" type="color" value="#52525b" aria-label="圆环轨道颜色" />
--                <button id="swatch-ringTrack" class="color-swatch-btn" type="button" data-color-slot="ringTrack" data-color-label="圆环轨道" title="点击打开颜色选取器"></button>
--                <button id="reset-ringTrack" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
--              </div>
--            </div>
--            <div class="color-item">
--              <span class="color-item-lbl">上下文用量文字</span>
--              <div class="color-item-ctrls">
--                <input id="color-contextText" class="color-picker" type="color" value="#ececef" aria-label="上下文用量文字颜色" />
--                <button id="swatch-contextText" class="color-swatch-btn" type="button" data-color-slot="contextText" data-color-label="上下文用量文字" title="点击打开颜色选取器"></button>
--                <button id="reset-contextText" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
--              </div>
--            </div>
--            <div class="color-item">
--              <span class="color-item-lbl">输出速度</span>
--              <div class="color-item-ctrls">
--                <input id="color-speedText" class="color-picker" type="color" value="#38bdf8" aria-label="输出速度颜色" />
--                <button id="swatch-speedText" class="color-swatch-btn" type="button" data-color-slot="speedText" data-color-label="输出速度" title="点击打开颜色选取器"></button>
--                <button id="reset-speedText" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
--              </div>
--            </div>
--            <div class="color-item">
--              <span class="color-item-lbl">累计 token 用量</span>
--              <div class="color-item-ctrls">
--                <input id="color-tokenTotal" class="color-picker" type="color" value="#c084fc" aria-label="累计 token 用量颜色" />
--                <button id="swatch-tokenTotal" class="color-swatch-btn" type="button" data-color-slot="tokenTotal" data-color-label="累计 token 用量" title="点击打开颜色选取器"></button>
--                <button id="reset-tokenTotal" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
--              </div>
--            </div>
--            <div class="color-item">
--              <span class="color-item-lbl">其他 token 指标</span>
--              <div class="color-item-ctrls">
--                <input id="color-tokenAccent" class="color-picker" type="color" value="#a78bfa" aria-label="其他 token 指标颜色" />
--                <button id="swatch-tokenAccent" class="color-swatch-btn" type="button" data-color-slot="tokenAccent" data-color-label="其他 token 指标" title="点击打开颜色选取器"></button>
--                <button id="reset-tokenAccent" class="color-reset-btn" type="button" data-mode="auto">跟随主题</button>
--              </div>
--            </div>
--          </div>
--          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px">
--            <span style="font-size:10.5px;color:var(--ag-text-muted)">注：高占用与超限告警色独立保留，不被常态颜色覆盖。</span>
--            <button id="reset-all-colors" class="color-reset-btn" type="button">全部恢复跟随主题</button>
--          </div>
--        </div>
+-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px">
+-        <span style="font-size:10.5px;color:var(--ag-text-muted)"
+-          data-i18n="settings.colors.note">注：高占用与超限告警色独立保留，不被常态颜色覆盖。</span>
+-        <button id="reset-all-colors" class="color-reset-btn" type="button"
+-          data-i18n="settings.colors.resetAll">全部恢复跟随主题</button>
 -      </div>
+-    </div>
+-  </div>
+-  </div>
+-  </div>
 -
-       <!-- 二级交互折叠区 2: 底层技术参数与附件审计 -->
-       <div class="tech-drawer">
-         <button id="btn-toggle-details" class="drawer-trigger" aria-expanded="false" type="button">
-@@ -3178,7 +3006,6 @@
-     });
-   });
-   el('reset-panelBg-tokens')?.addEventListener('click', () => setCustomColor('panelBg', ''));
--  el('reset-all-colors')?.addEventListener('click', () => { resetCustomColors(); closeColorPicker(); });
-   el('reset-all-colors-tokens')?.addEventListener('click', () => { resetCustomColors(); closeColorPicker(); });
+   <!-- 全局统一居中重启确认模态弹窗（立即可见，支持顶部、底部与配置区所有重启入口） -->
+   <div id="global-restart-modal" class="ag-modal-overlay" hidden role="dialog" aria-modal="true"
+     aria-labelledby="modal-restart-title">
+@@ -7609,7 +6894,7 @@ function formatVendorLabel(vendor) {
+   let heatYearOffset = 0;
+   let activeCostModel = 'gemini-3.8-flash';
+   let activeCostMode = 'ref';
+-  let autoCheckUpdate = true;
++  let autoCheckUpdate = false;
+   let cachedLatestRelease = null;
  
+ // =========================================================================
+@@ -9163,7 +8448,11 @@ function formatVendorLabel(vendor) {
+         left = Math.max(minLeft, left);
+ 
+         const maxWidthPx = Math.max(260, vw - left - 12);
+-        const maxHeightPx = Math.max(160, vh - top - 16);
++        const maxAvailH = Math.max(160, vh - top - 16);
++        const isCappedPanel = panelEl.id === 'panel' || panelEl.id === 'panel-quota' || panelEl === el('panel') || panelEl === el('panel-quota');
++        const maxHeightPx = isCappedPanel
++          ? Math.min(580, maxAvailH)
++          : maxAvailH;
+         const geomKey = `${top}|${left}|${maxWidthPx}|${maxHeightPx}|${isCompact ? 1 : 0}`;
+         if (panelEl._lastPlacedGeomKey === geomKey) return;
+         panelEl._lastPlacedGeomKey = geomKey;
+@@ -9210,6 +8499,15 @@ function formatVendorLabel(vendor) {
+   function flushHostDomMutationCheck() {
+     domMutationThrottleTimer = null;
+     if (state.disposed) return;
++    if (
++      host.isConnected &&
++      host.getAttribute('data-dock') === 'flow' &&
++      observedTitlebar?.isConnected &&
++      observedTitlebar.contains?.(host)
++    ) {
++      scheduleHostModelSync();
++      return;
++    }
+     if (!host.isConnected || host.getAttribute('data-dock') !== 'flow' || !findHostTitlebar()?.contains?.(host)) {
+       scheduleLayoutSync();
+     }
+@@ -11716,7 +11014,7 @@ function closeAllDropdowns(exceptWrap = null) {
+   let activeContextTab = 'session';
    try {
-@@ -3867,6 +3694,8 @@
-           ? anchorBtn.getBoundingClientRect()
-           : hRect;
-         const top = Math.max(36, Math.min(vh - 120, Math.round((bRect.bottom || hRect.bottom) + 6)));
-+        const maxAvailH = Math.max(240, vh - top - 20);
-+        const panelMaxH = panelEl.id === 'panel' ? Math.min(580, maxAvailH) : maxAvailH;
-         const isCompact = panelEl.classList?.contains?.('cost-compact-view') || panelEl.getAttribute?.('class')?.includes?.('cost-compact-view');
-         const effW = isCompact ? 400 : targetW;
-         const maxAvailW = Math.max(260, vw - minLeft - 12);
-@@ -3880,6 +3709,7 @@
-         panelEl.style.left = `${left}px`;
-         panelEl.style.right = 'auto';
-         panelEl.style.maxWidth = `${maxAvailW}px`;
-+        panelEl.style.maxHeight = `${panelMaxH}px`;
-         panelEl.style.transformOrigin = 'top right';
-       };
- 
-@@ -3897,7 +3727,19 @@
+     const savedTab = localStorage?.getItem(CTX_ACTIVE_TAB_KEY);
+-    if (savedTab === 'session' || savedTab === 'models' || savedTab === 'speed') {
++    if (savedTab === 'session' || savedTab === 'speed') {
+       activeContextTab = savedTab;
      }
-     if (typeof MutationObserver !== 'undefined' && document.body) {
-       hostDomObserver = new MutationObserver(() => {
--        if (!host.isConnected || host.getAttribute('data-dock') !== 'flow' || !findHostTitlebar()?.contains?.(host)) {
-+        if (!host.isConnected) {
-+          scheduleLayoutSync();
-+          return;
-+        }
-+        // 已稳定挂载于当前观察到的顶栏内时 O(1) 快速返回，避免聊天高频 DOM 变更反复触发选择器查找
-+        if (
-+          host.getAttribute('data-dock') === 'flow' &&
-+          observedTitlebar?.isConnected &&
-+          observedTitlebar.contains?.(host)
-+        ) {
-+          return;
-+        }
-+        if (host.getAttribute('data-dock') !== 'flow' || !findHostTitlebar()?.contains?.(host)) {
-           scheduleLayoutSync();
-         }
-       });
-@@ -4033,7 +3875,6 @@
+   } catch { }
+@@ -12838,9 +12136,10 @@ function closeAllDropdowns(exceptWrap = null) {
+     btnTabSettings?.setAttribute('aria-selected', String(activeContextTab === 'settings'));
    }
  
-   // 外观调色按钮直接展开抽屉
--  el('btn-panel-palette')?.addEventListener('click', () => toggleColorsDrawer());
-   el('btn-panel-tokens-palette')?.addEventListener('click', () => toggleTokenColorsDrawer());
+-  let prevTabBeforeSettings = 'models';
++  let prevTabBeforeSettings = 'session';
  
-   // =========================================================================
-@@ -5947,285 +5788,6 @@ function closeAllDropdowns(exceptWrap = null) {
-   el('badge-tokens').addEventListener('contextmenu', e => { e.preventDefault(); cycleTheme(); });
-   el('badge-speed')?.addEventListener('contextmenu', e => { e.preventDefault(); cycleTheme(); });
+   function switchContextTab(tabName) {
++    if (tabName === 'models' && !paneModels) tabName = 'session';
+     if (tabName !== 'session' && tabName !== 'models' && tabName !== 'speed' && tabName !== 'settings') return;
+     if (activeContextTab !== 'settings') {
+       prevTabBeforeSettings = activeContextTab;
+@@ -12859,10 +12158,10 @@ function closeAllDropdowns(exceptWrap = null) {
+       renderSpeedComparisonTab();
+     } else if (tabName === 'settings') {
+       void refreshModulesDisplay();
+-      if (!currentUnlockStatus && !unlockStatusFetchError && typeof refreshUnlockStatus === 'function') {
++      if (paneModels && !currentUnlockStatus && !unlockStatusFetchError && typeof refreshUnlockStatus === 'function') {
+         void refreshUnlockStatus();
+       }
+-      if (typeof refreshEnhanceStatus === 'function') void refreshEnhanceStatus();
++      if (el('enhance-prompt-card') && typeof refreshEnhanceStatus === 'function') void refreshEnhanceStatus();
+     }
+     positionFloatingPanels();
+   }
+@@ -12877,7 +12176,7 @@ function closeAllDropdowns(exceptWrap = null) {
+   }
  
--  // 二级抽屉: 上下文加长折叠展开与状态机
--  const btnUnlock = el('btn-toggle-unlock');
--  const unlockDrawerBody = el('unlock-drawer-body');
--  const unlockDrawerArrow = el('unlock-drawer-arrow');
--  const unlockBadge = el('unlock-badge');
--  const unlockStatusDesc = el('unlock-status-desc');
--  const btnApplyUnlock = el('btn-apply-unlock');
--  const btnRestoreUnlock = el('btn-restore-unlock');
--  const btnRefreshUnlock = el('btn-refresh-unlock');
--  const unlockResultBox = el('unlock-result-box');
--  const unlockResultText = el('unlock-result-text');
--  const unlockMetaTarget = el('unlock-meta-target');
--  const unlockMetaArch = el('unlock-meta-arch');
--  const unlockMetaSha = el('unlock-meta-sha');
--  const unlockMetaBackup = el('unlock-meta-backup');
--  const linkUnlockAuthor = el('link-unlock-author');
--  const btnCopyUnlockLink = el('btn-copy-unlock-link');
--  const unlockLinkToast = el('unlock-link-toast');
--
--  let currentUnlockStatus = null;
--  let isUnlocking = false;
--  let unlockReqSeq = 0;
--
--  function toggleUnlockDrawer(forceOpen) {
--    if (!unlockDrawerBody) return;
--    const isHidden = unlockDrawerBody.style.display === 'none' || !unlockDrawerBody.style.display;
--    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : isHidden;
--    unlockDrawerBody.style.display = nextOpen ? 'block' : 'none';
--    if (unlockDrawerArrow) unlockDrawerArrow.textContent = nextOpen ? '▲ 收起' : '▼ 展开';
--    btnUnlock?.setAttribute('aria-expanded', String(nextOpen));
--    if (nextOpen && !currentUnlockStatus) {
--      void refreshUnlockStatus();
--    }
--  }
--  btnUnlock?.addEventListener('click', () => toggleUnlockDrawer());
--
--  async function invokeUnlockApi(endpoint, payload = {}) {
--    if (endpoint === 'status' && window.contextMeterAPI?.getContextUnlockStatus) {
--      return await window.contextMeterAPI.getContextUnlockStatus(payload);
--    }
--    if (endpoint === 'apply' && window.contextMeterAPI?.applyContextUnlock) {
--      return await window.contextMeterAPI.applyContextUnlock(payload);
--    }
--    if (endpoint === 'restore' && window.contextMeterAPI?.restoreContextUnlock) {
--      return await window.contextMeterAPI.restoreContextUnlock(payload);
--    }
--    if (typeof window !== 'undefined' && window.__AGContextMeterLive?.port) {
--      const live = window.__AGContextMeterLive;
--      const r = await fetch(`http://127.0.0.1:${live.port}/context-unlock-${endpoint}`, {
--        method: 'POST',
--        headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
--        body: JSON.stringify(payload)
--      });
--      return await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }));
--    }
--    return { ok: false, error: '未连接到桥接服务（请重启客户端生效新 IPC，或执行 node cli.js live）' };
--  }
--
--  async function refreshUnlockStatus() {
--    if (!unlockBadge) return;
--    const thisSeq = ++unlockReqSeq;
--    try {
--      const currentObservedBudget = (state.latest?.budget && state.latest.budget > 0)
--        ? state.latest.budget
--        : undefined;
--      const res = await invokeUnlockApi('status', { currentBudget: currentObservedBudget });
--      if (thisSeq !== unlockReqSeq) return;
--
--      if (!res || !res.ok || !res.data) {
--        unlockBadge.textContent = '检测失败';
--        unlockBadge.className = 'key-pill pill-danger';
--        if (unlockStatusDesc) unlockStatusDesc.textContent = res?.error || '获取后端状态失败。';
--        return;
--      }
--      const data = res.data;
--      currentUnlockStatus = data;
--
--      unlockBadge.textContent = data.statusText || data.status;
--      if (data.status === 'verified_active') {
--        unlockBadge.className = 'key-pill pill-ok';
--      } else if (data.status === 'patched_runtime_unconfirmed') {
--        unlockBadge.className = 'key-pill pill-info';
--      } else if (data.status === 'patched_pending_restart') {
--        unlockBadge.className = 'key-pill pill-warn';
--      } else if (data.status === 'not_patched') {
--        unlockBadge.className = 'key-pill pill-muted';
--      } else {
--        unlockBadge.className = 'key-pill pill-danger';
--      }
--
--      if (unlockStatusDesc) {
--        unlockStatusDesc.textContent = data.details || data.reason || '状态已更新。';
--      }
--
--      if (unlockMetaTarget) unlockMetaTarget.textContent = data.targetPath || '未检测到';
--      if (unlockMetaArch) unlockMetaArch.textContent = `${data.arch || '未知'} (${data.format || '未知'}, ${data.mode || '未知'})`;
--      if (unlockMetaSha) unlockMetaSha.textContent = data.sha256 ? `${data.sha256.slice(0, 16)}…` : '—';
--      if (unlockMetaBackup) {
--        if (data.hasBackup && data.backupInfo) {
--          unlockMetaBackup.textContent = `已备份 (${data.backupInfo.backupPath})`;
--        } else {
--          unlockMetaBackup.textContent = '尚未备份（首次应用时将自动安全备份至应用目录外部）';
--        }
--      }
--
--      if (btnApplyUnlock) {
--        if (data.status === 'not_patched') {
--          btnApplyUnlock.disabled = false;
--          btnApplyUnlock.textContent = '⚡ 立即应用加长补丁';
--        } else if (data.status === 'verified_active') {
--          btnApplyUnlock.disabled = true;
--          btnApplyUnlock.textContent = '✅ 已生效（无需重复应用）';
--        } else if (data.status === 'patched_runtime_unconfirmed') {
--          btnApplyUnlock.disabled = true;
--          btnApplyUnlock.textContent = '🔍 补丁已写入（运行状态待确认）';
--        } else if (data.status === 'patched_pending_restart') {
--          btnApplyUnlock.disabled = true;
--          btnApplyUnlock.textContent = '⏳ 已打补丁（待重启客户端）';
--        } else {
--          btnApplyUnlock.disabled = true;
--          btnApplyUnlock.textContent = '⚠️ 当前目标不受支持';
--        }
--      }
--
--      if (btnRestoreUnlock) {
--        if (data.status === 'verified_active' || data.status === 'patched_pending_restart' || data.status === 'patched_runtime_unconfirmed' || data.hasBackup) {
--          btnRestoreUnlock.disabled = false;
--        } else {
--          btnRestoreUnlock.disabled = true;
--        }
--      }
--    } catch (e) {
--      if (thisSeq !== unlockReqSeq) return;
--      unlockBadge.textContent = '异常';
--      unlockBadge.className = 'key-pill pill-danger';
--      if (unlockStatusDesc) unlockStatusDesc.textContent = `检测异常: ${e.message}`;
--    }
--  }
--
--  btnRefreshUnlock?.addEventListener('click', () => {
--    void refreshUnlockStatus();
--  });
--
--  btnApplyUnlock?.addEventListener('click', async () => {
--    if (isUnlocking) return;
--    isUnlocking = true;
--    if (btnApplyUnlock) btnApplyUnlock.disabled = true;
--    if (unlockResultBox) unlockResultBox.style.display = 'none';
--
--    try {
--      const res = await invokeUnlockApi('apply');
--      if (!res || !res.ok) {
--        throw new Error(res?.error || '应用补丁失败');
--      }
--      if (unlockResultBox && unlockResultText) {
--        unlockResultBox.style.display = 'block';
--        unlockResultBox.className = 'unlock-result-box result-success';
--        unlockResultText.innerHTML = `<strong>🎉 解锁成功！</strong><br>${res.message || '补丁已安全写入。'}`;
--      }
--    } catch (e) {
--      if (unlockResultBox && unlockResultText) {
--        unlockResultBox.style.display = 'block';
--        unlockResultBox.className = 'unlock-result-box result-error';
--        unlockResultText.innerHTML = `<strong>❌ 应用补丁失败：</strong>${e.message}`;
--      }
--    } finally {
--      isUnlocking = false;
--      await refreshUnlockStatus();
--    }
--  });
--
--  btnRestoreUnlock?.addEventListener('click', async () => {
--    if (isUnlocking) return;
--    isUnlocking = true;
--    if (btnRestoreUnlock) btnRestoreUnlock.disabled = true;
--    if (unlockResultBox) unlockResultBox.style.display = 'none';
--
--    try {
--      const res = await invokeUnlockApi('restore');
--      if (!res || !res.ok) {
--        throw new Error(res?.error || '恢复原版失败');
--      }
--      if (unlockResultBox && unlockResultText) {
--        unlockResultBox.style.display = 'block';
--        unlockResultBox.className = 'unlock-result-box result-success';
--        unlockResultText.innerHTML = `<strong>🔄 恢复成功！</strong><br>${res.message || '已成功还原官方原版二进制。'}`;
--      }
--    } catch (e) {
--      if (unlockResultBox && unlockResultText) {
--        unlockResultBox.style.display = 'block';
--        unlockResultBox.className = 'unlock-result-box result-error';
--        unlockResultText.innerHTML = `<strong>❌ 恢复原版失败：</strong>${e.message}`;
--      }
--    } finally {
--      isUnlocking = false;
--      await refreshUnlockStatus();
--    }
--  });
--
--  const UNLOCK_POST_URL = 'https://linux.do/t/topic/3117832';
--  let unlockToastTimer = null;
--
--  function showUnlockToast(msg) {
--    if (!unlockLinkToast) return;
--    if (unlockToastTimer) clearTimeout(unlockToastTimer);
--    unlockLinkToast.textContent = msg;
--    unlockLinkToast.style.display = 'block';
--    unlockToastTimer = setTimeout(() => {
--      unlockLinkToast.style.display = 'none';
--    }, 4500);
--  }
--
--  async function openUnlockAuthorPost() {
--    let opened = false;
--    try {
--      if (window.contextMeterAPI?.openExternal) {
--        const res = await window.contextMeterAPI.openExternal(UNLOCK_POST_URL);
--        if (res && res.ok) opened = true;
--      }
--    } catch {}
--
--    if (!opened) {
--      try {
--        const w = window.open(UNLOCK_POST_URL, '_blank');
--        if (w) opened = true;
--      } catch {}
--    }
--
--    if (opened) {
--      showUnlockToast('已在系统默认浏览器中打开原作者帖子');
--    } else {
--      copyUnlockPostUrl(true);
--    }
--  }
--
--  function copyUnlockPostUrl(fromFailedOpen = false) {
--    let copied = false;
--    try {
--      if (navigator.clipboard?.writeText) {
--        navigator.clipboard.writeText(UNLOCK_POST_URL);
--        copied = true;
--      }
--    } catch {}
--    if (!copied) {
--      try {
--        const ta = document.createElement('textarea');
--        ta.value = UNLOCK_POST_URL;
--        document.body.appendChild(ta);
--        ta.select();
--        document.execCommand('copy');
--        document.body.removeChild(ta);
--        copied = true;
--      } catch {}
--    }
--    showUnlockToast(fromFailedOpen
--      ? '无法直接唤起外部浏览器，原作者帖子链接已复制到剪贴板，可直接在浏览器粘贴访问。'
--      : '原作者帖子链接已成功复制到剪贴板！');
--  }
--
--  linkUnlockAuthor?.addEventListener('click', (e) => {
--    e.preventDefault();
--    e.stopPropagation();
--    void openUnlockAuthorPost();
--  });
--
--  linkUnlockAuthor?.addEventListener('keydown', (e) => {
--    if (e.key === 'Enter' || e.key === ' ') {
--      e.preventDefault();
--      e.stopPropagation();
--      void openUnlockAuthorPost();
--    }
--  });
--
--  btnCopyUnlockLink?.addEventListener('click', (e) => {
--    e.preventDefault();
--    e.stopPropagation();
--    copyUnlockPostUrl(false);
--  });
--
-   // -------------------------------------------------------------
-   // 模块 2: 客户端界面汉化 (AntigravityChinese)
-   // -------------------------------------------------------------
-@@ -6249,35 +5811,72 @@ function closeAllDropdowns(exceptWrap = null) {
+   function closeContextSettings() {
+-    switchContextTab(prevTabBeforeSettings || 'models');
++    switchContextTab(prevTabBeforeSettings || 'session');
+     positionFloatingPanels();
+   }
+ 
+@@ -17466,10 +16765,12 @@ function closeAllDropdowns(exceptWrap = null) {
      }
    });
  
--  // -------------------------------------------------------------
--  // 模块 3: 免 TUN 网络直连 (AntigravityProxyNoTun)
--  // -------------------------------------------------------------
--  const btnToggleProxy = el('btn-toggle-proxy');
--  const proxyDrawerBody = el('proxy-drawer-body');
--  const proxyDrawerArrow = el('proxy-drawer-arrow');
--  const proxyBadge = el('proxy-badge');
--  const proxyStatusDesc = el('proxy-status-desc');
--  const inputProxyUrl = el('input-proxy-url');
--  const inputProxyBypass = el('input-proxy-bypass');
--  const btnTestProxy = el('btn-test-proxy');
--  const btnToggleProxyModule = el('btn-toggle-proxy-module');
--  const proxyTestResult = el('proxy-test-result');
--
--  let isProxyExpanded = false;
--  let currentProxyEnabled = false;
--
--  btnToggleProxy?.addEventListener('click', () => {
--    isProxyExpanded = !isProxyExpanded;
--    if (proxyDrawerBody) proxyDrawerBody.style.display = isProxyExpanded ? 'block' : 'none';
--    if (proxyDrawerArrow) proxyDrawerArrow.textContent = isProxyExpanded ? '▲ 收起' : '▼ 展开';
--    btnToggleProxy?.setAttribute('aria-expanded', String(isProxyExpanded));
--  });
-+  function isDomTranslatedNow() {
-+    if (typeof window.__AGY_I18N_DATA__ !== 'undefined' || typeof window.__AGY_TRANSLATE_EL__ !== 'undefined') {
-+      return true;
-+    }
-+    try {
-+      const systemContainers = document.querySelectorAll(
-+        "div[role='navigation'], nav, header, [role='banner'], aside, [data-testid*='sidebar'], [data-testid*='navigation'], [class*='@container/titlebar'], .monaco-workbench, .activitybar"
-+      );
-+      const systemKeywords = ['新建对话', '新建会话', '新建', '设置', '账户', '项目', '关于', '帮助', '工作区', '管理', '自定义扩展', '资源管理器', '活动栏'];
-+      for (let i = 0; i < systemContainers.length; i++) {
-+        const container = systemContainers[i];
-+        if (container.closest && container.closest('.chat-session, .conversation-view, .monaco-list-row, .markdown, [data-testid*="chat"], [data-testid*="message"]')) {
-+          continue; // 严格排除用户聊天内容区
-+        }
-+        const labeledNodes = container.querySelectorAll ? container.querySelectorAll('button, a, [role="button"], [aria-label], [title], span') : [];
-+        for (let j = 0; j < Math.min(labeledNodes.length, 40); j++) {
-+          const node = labeledNodes[j];
-+          const label = (node.getAttribute && (node.getAttribute('aria-label') || node.getAttribute('title'))) || '';
-+          if (label && systemKeywords.some(kw => label.includes(kw))) return true;
-+          const text = (node.textContent || '').trim();
-+          if (text && systemKeywords.some(kw => text.includes(kw))) return true;
-+        }
-+        const txt = container.innerText || '';
-+        if (systemKeywords.some(kw => txt.includes(kw))) return true;
-+      }
-+      const nav = document.querySelector("div[role='navigation'], nav");
-+      if (nav && nav.innerText && systemKeywords.some(kw => nav.innerText.includes(kw))) {
-+        return true;
-+      }
-+    } catch {}
-+    return false;
-+  }
-+
-+  async function callLiveBridge(route, payload = {}) {
-+    const live = typeof window !== 'undefined' ? window.__AGContextMeterLive : null;
-+    if (!live?.port || !live?.token) return null;
-+    const resp = await fetch(`http://127.0.0.1:${live.port}${route}`, {
-+      method: 'POST',
-+      headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
-+      body: JSON.stringify(payload)
-+    });
-+    if (!resp.ok) {
-+      throw new Error(`实时桥接 HTTP ${resp.status}`);
-+    }
-+    return await resp.json().catch(() => null);
-+  }
- 
-   async function refreshModulesDisplay() {
-+    const isDomTranslated = isDomTranslatedNow();
-     try {
-       const api = window.contextMeterAPI;
--      if (!api || typeof api.getModulesStatus !== 'function') return;
--      const res = await api.getModulesStatus();
-+      const hasIpc = Boolean(api && typeof api.getModulesStatus === 'function');
-+      const hasLive = Boolean(typeof window !== 'undefined' && window.__AGContextMeterLive?.port && window.__AGContextMeterLive?.token);
-+      if (!hasIpc && !hasLive) {
-+        if (chineseBadge) {
-+          chineseBadge.textContent = isDomTranslated ? '🟢 已翻译生效' : '⏳ 待重启生效';
-+          chineseBadge.className = isDomTranslated ? 'key-pill pill-ok' : 'key-pill pill-warn';
-+        }
-+        if (chineseStatusDesc) {
-+          chineseStatusDesc.textContent = isDomTranslated
-+            ? '汉化引擎运行中（待后台桥接就绪可接管热开关配置）。'
-+            : '汉化模块就绪，等待后台守护连接或重启窗口以加载汉化引擎。';
-+        }
-+        return;
-+      }
-+      const res = hasIpc ? await api.getModulesStatus() : await callLiveBridge('/modules-status', {});
-       if (!res || !res.ok || !res.data) {
-         const errMsg = (res && res.error) ? res.error : '模块状态返回异常';
-         if (chineseBadge) {
-@@ -6287,57 +5886,17 @@ function closeAllDropdowns(exceptWrap = null) {
-         if (chineseStatusDesc) {
-           chineseStatusDesc.textContent = `检测汉化状态失败: ${errMsg}`;
-         }
--        if (proxyBadge) {
--          proxyBadge.textContent = '⚠️ 读取失败';
--          proxyBadge.className = 'key-pill pill-danger';
--        }
--        if (proxyStatusDesc) {
--          proxyStatusDesc.textContent = `检测免 TUN 代理状态失败: ${errMsg}`;
--        }
-         return;
-       }
-       const cfg = res.data;
--
-+      const isCdpDaemonMode = res.mode === 'cdp-daemon';
-       currentChineseEnabled = Boolean(cfg.modules?.chinese?.enabled);
--      // 判定宿主界面是否已翻译：定向检查系统导航、活动栏、菜单及操作按钮等固有系统壳层（排除用户消息内容区域）
--      const isDomTranslated = (() => {
--        if (typeof window.__AGY_I18N_DATA__ !== 'undefined' || typeof window.__AGY_TRANSLATE_EL__ !== 'undefined') {
--          return true;
--        }
--        try {
--          const systemContainers = document.querySelectorAll(
--            "div[role='navigation'], nav, header, [role='banner'], aside, [data-testid*='sidebar'], [data-testid*='navigation'], [class*='@container/titlebar'], .monaco-workbench, .activitybar"
--          );
--          const systemKeywords = ['新建对话', '新建会话', '新建', '设置', '账户', '项目', '关于', '帮助', '工作区', '管理', '自定义扩展', '资源管理器', '活动栏'];
--          for (let i = 0; i < systemContainers.length; i++) {
--            const container = systemContainers[i];
--            if (container.closest && container.closest('.chat-session, .conversation-view, .monaco-list-row, .markdown, [data-testid*="chat"], [data-testid*="message"]')) {
--              continue; // 严格排除用户聊天内容区
--            }
--            const labeledNodes = container.querySelectorAll ? container.querySelectorAll('button, a, [role="button"], [aria-label], [title], span') : [];
--            for (let j = 0; j < Math.min(labeledNodes.length, 40); j++) {
--              const node = labeledNodes[j];
--              const label = (node.getAttribute && (node.getAttribute('aria-label') || node.getAttribute('title'))) || '';
--              if (label && systemKeywords.some(kw => label.includes(kw))) return true;
--              const text = (node.textContent || '').trim();
--              if (text && systemKeywords.some(kw => text.includes(kw))) return true;
--            }
--            const txt = container.innerText || '';
--            if (systemKeywords.some(kw => txt.includes(kw))) return true;
--          }
--          const nav = document.querySelector("div[role='navigation'], nav");
--          if (nav && nav.innerText && systemKeywords.some(kw => nav.innerText.includes(kw))) {
--            return true;
--          }
--        } catch {}
--        return false;
--      })();
-       const disk = res.disk || {};
- 
-       if (chineseBadge) {
-         if (!currentChineseEnabled) {
-           if (isDomTranslated) {
--            chineseBadge.textContent = '⏳ 需重启恢复英文';
-+            chineseBadge.textContent = isCdpDaemonMode ? '⏳ 需重载恢复英文' : '⏳ 需重启恢复英文';
-             chineseBadge.className = 'key-pill pill-warn';
-           } else {
-             chineseBadge.textContent = disk.chinese ? '⚪ 已关闭 (就绪)' : '⚪ 未安装';
-@@ -6350,59 +5909,36 @@ function closeAllDropdowns(exceptWrap = null) {
-           chineseBadge.textContent = '⚠️ 磁盘未注入';
-           chineseBadge.className = 'key-pill pill-danger';
-         } else {
--          chineseBadge.textContent = '⏳ 待重启客户端生效';
-+          chineseBadge.textContent = isCdpDaemonMode ? '⏳ 待后台自动注入' : '⏳ 待重启客户端生效';
-           chineseBadge.className = 'key-pill pill-warn';
-         }
-       }
-       if (chineseStatusDesc) {
-         if (!currentChineseEnabled) {
-           if (isDomTranslated) {
--            chineseStatusDesc.textContent = '汉化模块已在配置中关闭；当前界面仍保留已加载的中文 DOM 缓存，需完全退出并重新打开 Antigravity 客户端以彻底恢复纯净官方原生英文。';
-+            chineseStatusDesc.textContent = isCdpDaemonMode
-+              ? '汉化模块已在配置中关闭；当前页面仍保留已翻译的 DOM，重载窗口或重启 Antigravity 即可恢复官方原生英文。'
-+              : '汉化模块已在配置中关闭；当前界面仍保留已加载的中文 DOM 缓存，需完全退出并重新打开 Antigravity 客户端以彻底恢复纯净官方原生英文。';
-           } else {
-             chineseStatusDesc.textContent = disk.chinese
--              ? '客户端汉化已关闭（磁盘已具备汉化资源与配置门禁，开启后重启即可生效）。'
-+              ? '客户端汉化已关闭（后台已具备汉化资源，开启后可自动热注入生效）。'
-               : '客户端汉化处于未安装状态，保持官方原生英文界面。';
-           }
-         } else if (isDomTranslated) {
--          chineseStatusDesc.textContent = '汉化引擎运行中：DOM 监听器正常工作，左侧边栏与核心菜单已成功翻译。';
-+          chineseStatusDesc.textContent = isCdpDaemonMode
-+            ? '汉化引擎运行中（CDP 常驻守护模式）：页面重载或官方更新后自动生效，无需修改 app.asar。'
-+            : '汉化引擎运行中：DOM 监听器正常工作，左侧边栏与核心菜单已成功翻译。';
-         } else if (!disk.chinese) {
-           chineseStatusDesc.textContent = '配置已开启，但当前磁盘 ASAR 未注入汉化资源；需退出客户端后通过命令行运行 node cli.js chinese:enable 完成注入。';
-         } else {
--          chineseStatusDesc.textContent = '汉化代码已注入且配置已开启；需完全退出并重新打开 Antigravity 客户端加载生效。';
-+          chineseStatusDesc.textContent = isCdpDaemonMode
-+            ? '汉化已开启，后台 CDP 守护将在数秒内自动热注入当前窗口。'
-+            : '汉化代码已注入且配置已开启；需完全退出并重新打开 Antigravity 客户端加载生效。';
-         }
-       }
-       if (btnToggleChineseModule) {
-         btnToggleChineseModule.textContent = currentChineseEnabled ? '关闭客户端汉化' : '开启客户端汉化';
-       }
--
--      currentProxyEnabled = Boolean(cfg.modules?.proxy?.enabled);
--      if (proxyBadge) {
--        if (currentProxyEnabled) {
--          proxyBadge.textContent = disk.proxy ? '🟢 直连已配置' : '⚠️ 磁盘未注入';
--          proxyBadge.className = disk.proxy ? 'key-pill pill-ok' : 'key-pill pill-warn';
--        } else {
--          proxyBadge.textContent = '⚪ 未启用';
--          proxyBadge.className = 'key-pill pill-muted';
--        }
--      }
--      if (inputProxyUrl && cfg.modules?.proxy?.proxyUrl) {
--        inputProxyUrl.value = cfg.modules.proxy.proxyUrl;
--      }
--      if (inputProxyBypass && cfg.modules?.proxy?.bypassList) {
--        inputProxyBypass.value = cfg.modules.proxy.bypassList;
--      }
--      if (proxyStatusDesc) {
--        if (currentProxyEnabled) {
--          proxyStatusDesc.textContent = disk.proxy
--            ? `已启用本地网络直连（代理: ${cfg.modules.proxy.proxyUrl}）。注意：模型请求连通性待实际在线对话验证，未验证前不代表公网直连必定成功。`
--            : `配置已开启代理，但当前磁盘 ASAR 未注入代理拦截逻辑；需退出客户端后通过命令行运行 node cli.js proxy:enable 完成注入。`;
--        } else {
--          proxyStatusDesc.textContent = '未启用本地网络直连，网络请求跟随系统默认/TUN 设置。';
--        }
--      }
--      if (btnToggleProxyModule) {
--        btnToggleProxyModule.textContent = currentProxyEnabled ? '关闭免 TUN 直连' : '开启免 TUN 直连';
--      }
-     } catch (err) {
-       const errMsg = err?.message || String(err);
-       if (chineseBadge) {
-@@ -6412,26 +5948,27 @@ function closeAllDropdowns(exceptWrap = null) {
-       if (chineseStatusDesc) {
-         chineseStatusDesc.textContent = `检测汉化状态异常: ${errMsg}`;
-       }
--      if (proxyBadge) {
--        proxyBadge.textContent = '⚠️ 读取异常';
--        proxyBadge.className = 'key-pill pill-danger';
--      }
--      if (proxyStatusDesc) {
--        proxyStatusDesc.textContent = `检测免 TUN 代理状态异常: ${errMsg}`;
--      }
-     }
-   }
- 
-   btnToggleChineseModule?.addEventListener('click', async () => {
-     try {
-       const api = window.contextMeterAPI;
--      if (!api || typeof api.toggleModule !== 'function') return;
-+      const hasIpc = Boolean(api && typeof api.toggleModule === 'function');
-+      const hasLive = Boolean(typeof window !== 'undefined' && window.__AGContextMeterLive?.port && window.__AGContextMeterLive?.token);
-+      if (!hasIpc && !hasLive) return;
-       btnToggleChineseModule.disabled = true;
-       btnToggleChineseModule.textContent = '正在处理…';
--      const res = await api.toggleModule('chinese', !currentChineseEnabled);
-+      const targetEnable = !currentChineseEnabled;
-+      const res = hasIpc
-+        ? await api.toggleModule('chinese', targetEnable)
-+        : await callLiveBridge('/toggle-module', { name: 'chinese', enable: targetEnable });
-       if (!res || !res.ok) {
-         alert(res?.error || '切换汉化模块失败');
-       }
-+      if (!hasIpc && targetEnable) {
-+        await new Promise(r => setTimeout(r, 400));
-+      }
-       await refreshModulesDisplay();
-     } catch (e) {
-       alert('切换汉化模块异常: ' + e.message);
-@@ -6443,68 +5980,8 @@ function closeAllDropdowns(exceptWrap = null) {
-     }
-   });
- 
--  btnToggleProxyModule?.addEventListener('click', async () => {
--    try {
--      const api = window.contextMeterAPI;
--      if (!api || typeof api.toggleModule !== 'function') return;
--      btnToggleProxyModule.disabled = true;
--      btnToggleProxyModule.textContent = '正在处理…';
--      const res = await api.toggleModule('proxy', !currentProxyEnabled, {
--        proxyUrl: inputProxyUrl?.value?.trim(),
--        bypassList: inputProxyBypass?.value?.trim()
--      });
--      if (!res || !res.ok) {
--        alert(res?.error || '切换代理模块失败');
--      }
--      await refreshModulesDisplay();
--    } catch (e) {
--      alert('切换代理模块异常: ' + e.message);
--    } finally {
--      if (btnToggleProxyModule) {
--        btnToggleProxyModule.disabled = false;
--        btnToggleProxyModule.textContent = currentProxyEnabled ? '关闭免 TUN 直连' : '开启免 TUN 直连';
--      }
--    }
--  });
--
--  btnTestProxy?.addEventListener('click', async () => {
--    try {
--      const api = window.contextMeterAPI;
--      if (!api || typeof api.testProxy !== 'function') return;
--      btnTestProxy.disabled = true;
--      btnTestProxy.textContent = '正在测试…';
--      if (proxyTestResult) {
--        proxyTestResult.style.display = 'block';
--        proxyTestResult.textContent = '正在发起本地与网络连通性测试…';
--      }
--      const res = await api.testProxy(inputProxyUrl?.value?.trim());
--      if (proxyTestResult) {
--        if (!res || !res.ok) {
--          proxyTestResult.textContent = '❌ 测试失败: ' + (res?.error || '未知异常');
--        } else {
--          const d = res.data;
--          proxyTestResult.innerHTML = `
--            配置格式: ${d.configValid ? '✅ 合法' : '❌ 无效'}<br>
--            本地端口: ${d.proxyReachable ? '✅ 可连接' : '❌ 无法连接'}<br>
--            公网连通: ${d.internetReachable ? '✅ 可访问' : '⚠️ 无法访问公网 (可能无境外连通)'}<br>
--            模型请求: 待通过真实在线会话验证 (分层标定)
--            ${d.error ? `<br><span style="color:var(--ag-danger)">⚠️ ${d.error}</span>` : ''}
--          `;
--        }
--      }
--    } catch (e) {
--      if (proxyTestResult) proxyTestResult.textContent = '❌ 测试异常: ' + e.message;
--    } finally {
--      if (btnTestProxy) {
--        btnTestProxy.disabled = false;
--        btnTestProxy.textContent = '🔍 测试代理连通性';
--      }
--    }
--  });
--
 -  // 静默初始化检测一次解锁状态与各模块状态
-+  // 静默初始化检测一次各模块状态
-   setTimeout(() => {
++  // 静默初始化检测各模块状态（精简模式下仅检测存在的面板模块）
+   const initDetectTimer1 = setTimeout(() => {
+     if (state.disposed) return;
 -    void refreshUnlockStatus();
++    if (paneModels || unlockBadge) {
++      void refreshUnlockStatus();
++    }
      void refreshModulesDisplay();
    }, 500);
-   setTimeout(() => {
-@@ -6513,23 +5990,6 @@ function closeAllDropdowns(exceptWrap = null) {
-     }
-   }, 2000);
- 
--  // 二级抽屉 1（面板 B 内）: 指标与背景颜色自定义抽屉折叠展开
--  const btnColors = el('btn-toggle-colors');
--  const colorDrawerBody = el('color-drawer-body');
--  const colorDrawerArrow = el('color-drawer-arrow');
--  function toggleColorsDrawer(forceOpen) {
--    if (!colorDrawerBody) return;
--    const isHidden = colorDrawerBody.style.display === 'none' || !colorDrawerBody.style.display;
--    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : isHidden;
--    colorDrawerBody.style.display = nextOpen ? 'block' : 'none';
--    if (colorDrawerArrow) colorDrawerArrow.textContent = nextOpen ? '▲ 收起设置' : '▼ 展开设置';
--    btnColors?.setAttribute('aria-expanded', String(nextOpen));
--    if (!nextOpen) {
--      closeColorPicker();
--    }
--  }
--  btnColors?.addEventListener('click', () => toggleColorsDrawer());
--
-   // 二级抽屉 2（面板 B 内）: 底层技术抽屉折叠展开
-   const btnDetails = el('btn-toggle-details');
-   const drawerBody = el('drawer-body');
-@@ -6934,8 +6394,12 @@ function closeAllDropdowns(exceptWrap = null) {
-     renderActiveHeatView(true);
-     updateHeatTabThumb();
- 
--    if (save && typeof window !== 'undefined' && typeof window.contextMeterAPI?.saveSettings === 'function') {
--      window.contextMeterAPI.saveSettings({ savedHeatView: view });
-+    if (save && typeof window !== 'undefined') {
-+      if (typeof window.contextMeterAPI?.saveSettings === 'function') {
-+        window.contextMeterAPI.saveSettings({ savedHeatView: view });
-+      } else if (window.__AGContextMeterLive?.port) {
-+        void callLiveBridge('/save-settings', { savedHeatView: view }).catch(() => {});
-+      }
-     }
-   }
- 
-@@ -7022,12 +6486,6 @@ function closeAllDropdowns(exceptWrap = null) {
-         btnTokenColors?.focus?.();
-         return;
-       }
--      const colorDrawer = el('color-drawer-body');
--      if (colorDrawer && colorDrawer.style.display !== 'none') {
--        toggleColorsDrawer(false);
--        btnColors?.focus?.();
--        return;
--      }
-       toggle(false);
-       hideContextTooltip();
-       const om = el('overflow-menu');
-@@ -7594,6 +7052,12 @@ function closeAllDropdowns(exceptWrap = null) {
+   const initDetectTimer2 = setTimeout(() => {
+@@ -18734,6 +18035,17 @@ function closeAllDropdowns(exceptWrap = null) {
      const url = 'https://github.com/elviscjn-cjn/antigravity-context-viewer' + pathSuffix;
      if (typeof window !== 'undefined' && typeof window.contextMeterAPI?.openExternal === 'function') {
        window.contextMeterAPI.openExternal(url);
 +    } else if (typeof window !== 'undefined' && window.__AGContextMeterLive?.port) {
-+      void callLiveBridge('/open-external', { url }).then(res => {
++      const live = window.__AGContextMeterLive;
++      void fetch(`http://127.0.0.1:${live.port}/open-external`, {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
++        body: JSON.stringify({ url })
++      }).then(r => r.json()).then(res => {
 +        if (!res?.ok) window.open?.(url, '_blank');
 +      }).catch(() => {
 +        window.open?.(url, '_blank');
@@ -1003,35 +925,19 @@ index 91bcef5..50fb968 100644
      } else {
        window.open?.(url, '_blank');
      }
-@@ -7838,8 +7302,12 @@ function closeAllDropdowns(exceptWrap = null) {
+@@ -18977,9 +18289,7 @@ function closeAllDropdowns(exceptWrap = null) {
  
    el('check-auto-update')?.addEventListener('change', e => {
      autoCheckUpdate = e.target.checked;
 -    if (typeof window !== 'undefined' && typeof window.contextMeterAPI?.saveSettings === 'function') {
 -      window.contextMeterAPI.saveSettings({ autoCheckUpdate });
-+    if (typeof window !== 'undefined') {
-+      if (typeof window.contextMeterAPI?.saveSettings === 'function') {
-+        window.contextMeterAPI.saveSettings({ autoCheckUpdate });
-+      } else if (window.__AGContextMeterLive?.port) {
-+        void callLiveBridge('/save-settings', { autoCheckUpdate }).catch(() => {});
-+      }
-     }
+-    }
++    void saveSettingsPayloadBridge({ autoCheckUpdate });
    });
  
-@@ -8758,11 +8226,6 @@ function renderHeatmapGrid(forceRebuild = false) {
- 
-     updateRingAndBubble(d, session, pct, danger, stale, incomplete);
- 
--    // 上下文预算与解锁状态自动联动：若观测到预算突破 256,000，且解锁抽屉中记录仍为待重启或未确认，则自动触发刷新同步
--    if (d?.budget && d.budget > 256000 && currentUnlockStatus && currentUnlockStatus.status !== 'verified_active') {
--      void refreshUnlockStatus();
--    }
--
-     const status = disp.isError
-       ? disp.statusText
-       : stale ? '最近请求统计读取异常或延迟，不能判断剩余空间。'
-@@ -9017,21 +8480,27 @@ function renderHeatmapGrid(forceRebuild = false) {
-     if (!state.disposed && !host.isConnected) {
+ function renderHeatmapGrid(forceRebuild = false) {
+@@ -22370,14 +21680,17 @@ function renderHeatmapGrid(forceRebuild = false) {
+     if (!host.isConnected) {
        ensureHostDocked();
      }
 +    const prevRoute = state.route;
@@ -1040,24 +946,1034 @@ index 91bcef5..50fb968 100644
 +    if (id !== prevRoute) {
        for (const controller of state.controllers) controller.abort(); state.controllers.clear(); state.generation++;
        if (state.sessionCallsMap) state.sessionCallsMap.clear();
-       if (state.reportedFinalCallIds) state.reportedFinalCallIds.clear();
-       if (state.reportedFinalCallOutputs) state.reportedFinalCallOutputs.clear();
-+      // 仅在真实运行环境中切换历史会话时将全量扫描错峰 900ms，优先让 Antigravity 与 language_server 完成首屏渲染与读取；冷启动与单测保持即时触发
++      // 仅在真实运行环境中切换历史会话时将全量扫描错峰 900ms，优先让 Antigravity 与 language_server 完成首屏渲染；冷启动与单测保持即时触发
 +      const deferLiveScan = Boolean(prevRoute && !window.contextMeterAPI?.scan && window.__AGContextMeterLive?.port);
        Object.assign(state, {
          route: id, count: 0, latest: null, sessionCalls: [], sessionCostTotal: 0,
-         requestAt: 0, requestError: '', requestBusy: false, requestNext: 0,
--        scanBusy: false, scanNext: 0, scanError: '', scan: null,
-+        scanBusy: false, scanNext: deferLiveScan ? Date.now() + 900 : 0, scanError: '', scan: null,
-         reportedFinalCallIds: state.reportedFinalCallIds || new Set(),
-         reportedFinalCallOutputs: state.reportedFinalCallOutputs || new Map()
+         callsHydrated: false, requestAt: 0, requestError: '', requestBusy: false, requestNext: 0,
+-        scanBusy: false, scanNext: 0, scanError: '', scan: null
++        scanBusy: false, scanNext: deferLiveScan ? Date.now() + 900 : 0, scanError: '', scan: null
        });
-       toggle(false); hideContextTooltip(); renderFiles(null); render();
--      void syncTokenHistoryFromHost(false);
-+      if (Date.now() - lastHistorySync > 5000) {
-+        lastHistorySync = Date.now();
-+        void syncTokenHistoryFromHost(false);
+       // 避免切换会话后立刻撞上 15s 周期历史刷新，若已做过同步则确保至少留出 7s 窗口给当前会话优先加载
+       if (lastHistorySync > 0) {
+diff --git a/meter-renderer.test.js b/meter-renderer.test.js
+index 2ff619b..1ba6cbf 100644
+--- a/meter-renderer.test.js
++++ b/meter-renderer.test.js
+@@ -2060,11 +2060,12 @@ test('0.8.3 UI & restart & i18n regression: model selector moved into tab, detai
+   assert.ok(headerStart >= 0 && tabsStart > headerStart);
+   const headerSlice = html.slice(headerStart, tabsStart);
+   assert.equal(headerSlice.includes('ctx-model-dropdown-wrap'), false, '标题栏第一行不应再包含模型下拉选择器');
+-  const modelsPaneStart = html.indexOf('<div id="pane-ctx-models"');
+-  const speedPaneStart = html.indexOf('<div id="pane-ctx-speed"');
+-  const modelsPaneSlice = html.slice(modelsPaneStart, speedPaneStart);
+-  assert.equal(modelsPaneSlice.includes('ctx-model-dropdown-wrap'), true, '模型选择器应位于模型设置页内');
+-  assert.equal(modelsPaneSlice.includes('ctx-card-details-drawer'), true, '实测预算与速度详情应位于下层折叠抽屉');
++  assert.equal(headerSlice.includes('btn-panel-palette'), false, '精简版已移除 #panel 调色按钮');
++  assert.equal(html.includes('pane-ctx-models'), false, '精简版已移除二进制上下文调整分页');
++  assert.equal(html.includes('proxy-notun-drawer'), false, '精简版已移除免 TUN 代理抽屉');
++  assert.equal(html.includes('btn-toggle-colors'), false, '精简版已移除 #panel 配色抽屉');
++  assert.equal(html.includes('client-brand-lang-card'), true, '配置页保留客户端语言与品牌切换卡片');
++  assert.equal(html.includes('id="panel-quota"'), true, '保留顶栏模型额度看板');
+ 
+   const h = harness();
+   const api = h.sandbox.__AGContextMeter;
+@@ -4652,3 +4653,32 @@ test('Issue #22: applyAppUpdate 在严格模式下不因未声明 currentVer 报
+     api.dispose();
+   }
+ });
++
++test('suite adaptation: 580px cap on #panel/#panel-quota, /open-external live bridge, and >500 chars i18n regex skip', () => {
++  const { createI18nEngine } = require('./i18n/i18n-runtime.js');
++  const engine = createI18nEngine({
++    exact: { 'Short key': '短译文' },
++    patterns: [{ regex: /^Thought for (\d+)s$/i, replacement: '已思考 $1 秒' }]
++  });
++  assert.equal(engine.translate('Short key'), '短译文');
++  assert.equal(engine.translate('Thought for 5s'), '已思考 5 秒');
++  assert.equal(engine.translate('Long uncached log paragraph ' + 'x'.repeat(510)), null);
++
++  const h = harness();
++  const api = h.sandbox.__AGContextMeter;
++  try {
++    h.sandbox.window.innerHeight = 1080;
++    h.elements.get('badge').click();
++    assert.equal(h.elements.get('panel').style.maxHeight, '580px');
++    h.elements.get('badge-quota').click();
++    assert.equal(h.elements.get('panel-quota').style.maxHeight, '580px');
++
++    h.sandbox.window.contextMeterAPI = {};
++    h.sandbox.window.__AGContextMeterLive = { port: 43210, token: 'tok-suite' };
++    api.openGithubRepo('/releases');
++    const openCall = h.pending.find(p => String(p.url).includes(':43210/open-external'));
++    assert.ok(openCall, 'CDP 模式下 GitHub 跳转应通过 /open-external 桥接发起');
++  } finally {
++    api.dispose();
++  }
++});
+diff --git a/src/i18n/i18n-runtime.js b/src/i18n/i18n-runtime.js
+index b1edce8..f5f2969 100644
+--- a/src/i18n/i18n-runtime.js
++++ b/src/i18n/i18n-runtime.js
+@@ -86,6 +86,11 @@
+         return cacheAndReturn(normalized, null);
+       }
+ 
++      // 超长纯英文段落（如聊天长文/日志/堆栈）已未命中精确词典，跳过 338 条正则与拆句兜底以防主线程卡顿
++      if (normalized.length > 500) {
++        return cacheAndReturn(normalized, null);
 +      }
++
+       for (var i = 0; i < patterns.length; i++) {
+         var p = patterns[i];
+         if (p.regex.test(normalized)) {
+diff --git a/src/renderer/main.js b/src/renderer/main.js
+index eb17f62..953d2de 100644
+--- a/src/renderer/main.js
++++ b/src/renderer/main.js
+@@ -124,7 +124,7 @@
+   let heatYearOffset = 0;
+   let activeCostModel = 'gemini-3.8-flash';
+   let activeCostMode = 'ref';
+-  let autoCheckUpdate = true;
++  let autoCheckUpdate = false;
+   let cachedLatestRelease = null;
+ 
+   /* @INSERT_COLORS_MODULE */
+@@ -770,7 +770,11 @@
+         left = Math.max(minLeft, left);
+ 
+         const maxWidthPx = Math.max(260, vw - left - 12);
+-        const maxHeightPx = Math.max(160, vh - top - 16);
++        const maxAvailH = Math.max(160, vh - top - 16);
++        const isCappedPanel = panelEl.id === 'panel' || panelEl.id === 'panel-quota' || panelEl === el('panel') || panelEl === el('panel-quota');
++        const maxHeightPx = isCappedPanel
++          ? Math.min(580, maxAvailH)
++          : maxAvailH;
+         const geomKey = `${top}|${left}|${maxWidthPx}|${maxHeightPx}|${isCompact ? 1 : 0}`;
+         if (panelEl._lastPlacedGeomKey === geomKey) return;
+         panelEl._lastPlacedGeomKey = geomKey;
+@@ -817,6 +821,15 @@
+   function flushHostDomMutationCheck() {
+     domMutationThrottleTimer = null;
+     if (state.disposed) return;
++    if (
++      host.isConnected &&
++      host.getAttribute('data-dock') === 'flow' &&
++      observedTitlebar?.isConnected &&
++      observedTitlebar.contains?.(host)
++    ) {
++      scheduleHostModelSync();
++      return;
++    }
+     if (!host.isConnected || host.getAttribute('data-dock') !== 'flow' || !findHostTitlebar()?.contains?.(host)) {
+       scheduleLayoutSync();
      }
-     if (id && !state.requestBusy && Date.now() >= state.requestNext) void requestPoll(state.generation, id);
-     if (id && !state.scanBusy && Date.now() >= state.scanNext) void scan(state.generation, id);
+@@ -1932,7 +1945,7 @@
+   let activeContextTab = 'session';
+   try {
+     const savedTab = localStorage?.getItem(CTX_ACTIVE_TAB_KEY);
+-    if (savedTab === 'session' || savedTab === 'models' || savedTab === 'speed') {
++    if (savedTab === 'session' || savedTab === 'speed') {
+       activeContextTab = savedTab;
+     }
+   } catch { }
+@@ -3054,9 +3067,10 @@
+     btnTabSettings?.setAttribute('aria-selected', String(activeContextTab === 'settings'));
+   }
+ 
+-  let prevTabBeforeSettings = 'models';
++  let prevTabBeforeSettings = 'session';
+ 
+   function switchContextTab(tabName) {
++    if (tabName === 'models' && !paneModels) tabName = 'session';
+     if (tabName !== 'session' && tabName !== 'models' && tabName !== 'speed' && tabName !== 'settings') return;
+     if (activeContextTab !== 'settings') {
+       prevTabBeforeSettings = activeContextTab;
+@@ -3075,10 +3089,10 @@
+       renderSpeedComparisonTab();
+     } else if (tabName === 'settings') {
+       void refreshModulesDisplay();
+-      if (!currentUnlockStatus && !unlockStatusFetchError && typeof refreshUnlockStatus === 'function') {
++      if (paneModels && !currentUnlockStatus && !unlockStatusFetchError && typeof refreshUnlockStatus === 'function') {
+         void refreshUnlockStatus();
+       }
+-      if (typeof refreshEnhanceStatus === 'function') void refreshEnhanceStatus();
++      if (el('enhance-prompt-card') && typeof refreshEnhanceStatus === 'function') void refreshEnhanceStatus();
+     }
+     positionFloatingPanels();
+   }
+@@ -3093,7 +3107,7 @@
+   }
+ 
+   function closeContextSettings() {
+-    switchContextTab(prevTabBeforeSettings || 'models');
++    switchContextTab(prevTabBeforeSettings || 'session');
+     positionFloatingPanels();
+   }
+ 
+@@ -7682,10 +7696,12 @@
+     }
+   });
+ 
+-  // 静默初始化检测一次解锁状态与各模块状态
++  // 静默初始化检测各模块状态（精简模式下仅检测存在的面板模块）
+   const initDetectTimer1 = setTimeout(() => {
+     if (state.disposed) return;
+-    void refreshUnlockStatus();
++    if (paneModels || unlockBadge) {
++      void refreshUnlockStatus();
++    }
+     void refreshModulesDisplay();
+   }, 500);
+   const initDetectTimer2 = setTimeout(() => {
+@@ -8950,6 +8966,17 @@
+     const url = 'https://github.com/elviscjn-cjn/antigravity-context-viewer' + pathSuffix;
+     if (typeof window !== 'undefined' && typeof window.contextMeterAPI?.openExternal === 'function') {
+       window.contextMeterAPI.openExternal(url);
++    } else if (typeof window !== 'undefined' && window.__AGContextMeterLive?.port) {
++      const live = window.__AGContextMeterLive;
++      void fetch(`http://127.0.0.1:${live.port}/open-external`, {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
++        body: JSON.stringify({ url })
++      }).then(r => r.json()).then(res => {
++        if (!res?.ok) window.open?.(url, '_blank');
++      }).catch(() => {
++        window.open?.(url, '_blank');
++      });
+     } else {
+       window.open?.(url, '_blank');
+     }
+@@ -9193,9 +9220,7 @@
+ 
+   el('check-auto-update')?.addEventListener('change', e => {
+     autoCheckUpdate = e.target.checked;
+-    if (typeof window !== 'undefined' && typeof window.contextMeterAPI?.saveSettings === 'function') {
+-      window.contextMeterAPI.saveSettings({ autoCheckUpdate });
+-    }
++    void saveSettingsPayloadBridge({ autoCheckUpdate });
+   });
+ 
+   /* @INSERT_HEATMAP_MODULE */
+@@ -11815,14 +11840,17 @@
+     if (!host.isConnected) {
+       ensureHostDocked();
+     }
++    const prevRoute = state.route;
+     const id = route();
+-    if (id !== state.route) {
++    if (id !== prevRoute) {
+       for (const controller of state.controllers) controller.abort(); state.controllers.clear(); state.generation++;
+       if (state.sessionCallsMap) state.sessionCallsMap.clear();
++      // 仅在真实运行环境中切换历史会话时将全量扫描错峰 900ms，优先让 Antigravity 与 language_server 完成首屏渲染；冷启动与单测保持即时触发
++      const deferLiveScan = Boolean(prevRoute && !window.contextMeterAPI?.scan && window.__AGContextMeterLive?.port);
+       Object.assign(state, {
+         route: id, count: 0, latest: null, sessionCalls: [], sessionCostTotal: 0,
+         callsHydrated: false, requestAt: 0, requestError: '', requestBusy: false, requestNext: 0,
+-        scanBusy: false, scanNext: 0, scanError: '', scan: null
++        scanBusy: false, scanNext: deferLiveScan ? Date.now() + 900 : 0, scanError: '', scan: null
+       });
+       // 避免切换会话后立刻撞上 15s 周期历史刷新，若已做过同步则确保至少留出 7s 窗口给当前会话优先加载
+       if (lastHistorySync > 0) {
+diff --git a/src/renderer/styles.css b/src/renderer/styles.css
+index b26088c..21ad211 100644
+--- a/src/renderer/styles.css
++++ b/src/renderer/styles.css
+@@ -957,8 +957,8 @@
+       flex:1 1 auto;min-height:0;overflow-y:auto;overflow-anchor:none;overscroll-behavior:contain;
+       padding:10px 14px 20px;box-sizing:border-box;
+     }
+-    #panel{width:472px;max-width:calc(100vw - 24px)}
+-    #panel-quota{width:460px;max-width:calc(100vw - 24px)}
++    #panel{width:472px;max-width:calc(100vw - 24px);max-height:min(580px,calc(100vh - 96px))}
++    #panel-quota{width:460px;max-width:calc(100vw - 24px);max-height:min(580px,calc(100vh - 96px))}
+     #panel-tokens{width:730px;transition:width .22s cubic-bezier(0.16,1,0.3,1),max-width .22s cubic-bezier(0.16,1,0.3,1),opacity .16s cubic-bezier(0.16,1,0.3,1),transform .16s cubic-bezier(0.16,1,0.3,1)}
+     #panel-tokens.cost-compact-view{width:400px!important;max-width:calc(100vw - 24px)}
+     .ag-panel[hidden]{display:block!important;opacity:0;transform:translateY(-6px);visibility:hidden;pointer-events:none}
+diff --git a/src/renderer/template.html b/src/renderer/template.html
+index 74adfc9..2dae443 100644
+--- a/src/renderer/template.html
++++ b/src/renderer/template.html
+@@ -131,8 +131,6 @@
+         </svg>
+         <span id="update-badge-dot-ctx" class="update-badge-dot" style="display:none"></span>
+       </button>
+-      <button id="btn-panel-palette" class="panel-icon-btn" type="button" aria-label="外观与调色设置"
+-        data-i18n-aria="header.palette.aria" title="外观与调色设置" data-i18n-title="header.palette.aria">🎨</button>
+       <button id="theme-toggle" class="panel-icon-btn" type="button" aria-label="切换浅色/深色主题"
+         data-i18n-aria="header.theme.aria" title="当前：跟随IDE（点击切换：浅色 / 深色 / 自动）"
+         data-i18n-title="header.theme.title">🌓</button>
+@@ -146,8 +144,6 @@
+     <div id="ctx-tabs-bar" class="ctx-tabs-bar" role="tablist" aria-label="上下文面板分页" data-i18n-aria="tabs.aria">
+       <button id="tab-ctx-session" class="ctx-tab-btn active" type="button" role="tab" aria-selected="true"
+         data-ctx-tab="session" data-i18n="tab.session">当前会话</button>
+-      <button id="tab-ctx-models" class="ctx-tab-btn" type="button" role="tab" aria-selected="false"
+-        data-ctx-tab="models" data-i18n="tab.models">模型设置</button>
+       <button id="tab-ctx-speed" class="ctx-tab-btn" type="button" role="tab" aria-selected="false" data-ctx-tab="speed"
+         data-i18n="tab.speed">速度对比</button>
+       <button id="tab-ctx-settings" class="ctx-tab-btn" type="button" role="tab" aria-selected="false"
+@@ -219,21 +215,6 @@
+         <div id="speed-takeaway" class="key-takeaway" data-i18n="session.speed.wait">等待首次模型输出产生速度统计…</div>
+       </div>
+ 
+-      <!-- 紧凑上下文设置入口卡片 -->
+-      <div id="ctx-compact-card" class="ctx-compact-card">
+-        <div class="ctx-compact-info">
+-          <div class="ctx-compact-title" data-i18n="session.compact.title">上下文设置</div>
+-          <div class="ctx-compact-meta">
+-            <span><span data-i18n="session.compact.savedLabel">本模型已保存：</span><strong
+-                id="ctx-compact-saved">未单独设置（使用默认）</strong></span>
+-            <span><span data-i18n="session.compact.clientLabel">客户端当前使用：</span><strong
+-                id="ctx-compact-client">状态读取中…</strong></span>
+-          </div>
+-        </div>
+-        <button id="btn-goto-model-settings" class="ctx-compact-link-btn" type="button"
+-          data-i18n="session.compact.gotoModels">去模型设置 ›</button>
+-      </div>
+-
+       <!-- 底层技术参数与附件审计 -->
+       <div class="tech-drawer">
+         <button id="btn-toggle-details" class="drawer-trigger" aria-expanded="false" type="button">
+@@ -295,377 +276,6 @@
+       </div>
+     </div>
+ 
+-    <!-- 分页 2: 模型设置 -->
+-    <div id="pane-ctx-models" class="ctx-tab-pane" role="tabpanel" aria-labelledby="tab-ctx-models" hidden>
+-      <!-- 1. 客户端状态条（全局一条） -->
+-      <div id="ctx-client-status-bar" class="ctx-status-bar">
+-        <div class="ctx-status-bar-main">
+-          <div class="ctx-status-left">
+-            <span id="ctx-client-status-text" class="ctx-client-status-text"
+-              data-i18n="status.client.reading">客户端当前使用：状态读取中…</span>
+-            <span id="unlock-badge" class="key-pill pill-muted" data-i18n="status.badge.reading">状态读取中…</span>
+-          </div>
+-          <div class="ctx-status-actions">
+-            <button id="btn-restart-host" class="unlock-btn unlock-btn-primary ctx-restart-btn" type="button" hidden
+-              data-i18n="models.restartBtn">重启客户端使设置生效</button>
+-          </div>
+-        </div>
+-        <div id="ctx-restart-mismatch-note" class="ctx-status-subnote" hidden></div>
+-        <div id="ctx-manual-restart-note" class="ctx-manual-restart-note" hidden data-i18n="models.manualRestart">
+-          请手动重启：关闭所有 Antigravity 窗口（包括托盘图标里的“退出”），再重新打开 Antigravity。</div>
+-        <div id="ctx-restart-confirm" class="ctx-restart-confirm" hidden>
+-          <div class="ctx-restart-confirm-text" data-i18n="models.restartConfirm.text">重启会中断正在运行的任务。请先保存未保存的内容。</div>
+-          <div class="ctx-restart-confirm-actions">
+-            <button id="btn-restart-cancel" class="unlock-btn unlock-btn-secondary" type="button"
+-              data-i18n="models.restartConfirm.cancel">取消</button>
+-            <button id="btn-restart-confirm-go" class="unlock-btn unlock-btn-primary" type="button"
+-              data-i18n="models.restartConfirm.go">重启</button>
+-          </div>
+-        </div>
+-        <div id="ctx-restart-feedback" class="ctx-restart-feedback" hidden></div>
+-      </div>
+-
+-      <!-- 2. 模式选择器（统一设置 vs 按模型分别设置） -->
+-      <div class="ctx-scope-selector-wrap" id="ctx-scope-selector-wrap">
+-        <div class="ctx-scope-mode-toggle" role="radiogroup" aria-label="上下文设置模式" data-i18n-aria="models.mode.aria">
+-          <button type="button" class="ctx-mode-tab-btn is-active" id="btn-ctx-mode-unified" data-mode="unified"
+-            role="radio" aria-checked="true">
+-            <span class="ctx-mode-tab-title" data-i18n="models.mode.unifiedTitle">所有模型统一设置</span>
+-            <span class="ctx-mode-tab-desc" data-i18n="models.mode.unifiedDesc">设置一次，所有模型使用相同的上下文长度。</span>
+-          </button>
+-          <button type="button" class="ctx-mode-tab-btn" id="btn-ctx-mode-per-model" data-mode="per_model" role="radio"
+-            aria-checked="false">
+-            <span class="ctx-mode-tab-title" data-i18n="models.mode.perModelTitle">按模型分别设置</span>
+-            <span class="ctx-mode-tab-desc" data-i18n="models.mode.perModelDesc">每个模型分别保存，使用哪个模型，就采用它的上下文长度。</span>
+-          </button>
+-        </div>
+-      </div>
+-
+-      <!-- 3. 模型查看与切换条（仅在分别设置模式下呈现） -->
+-      <div class="ctx-models-toolbar" id="ctx-models-toolbar" hidden>
+-        <div class="ctx-header-model-ctrl">
+-          <span id="ctx-model-selector-role" class="ctx-selector-role-lbl" data-i18n="panel.ctx.viewModel">查看模型</span>
+-          <select id="ctx-model-select" class="ctx-model-select" aria-label="查看模型" data-i18n-aria="panel.ctx.viewModel"
+-            style="display:none"></select>
+-          <div id="ctx-model-dropdown-wrap" class="ag-dropdown-wrapper ctx-header-dropdown">
+-            <div id="ctx-model-dropdown-trigger" class="ag-dropdown-trigger ctx-compact-trigger" tabindex="0"
+-              title="按厂商查看不同模型的上下文设置" data-i18n-title="panel.ctx.viewModelTitle">
+-              <span id="ctx-model-dropdown-label" class="ag-dropdown-label"
+-                data-i18n="panel.ctx.loadingModels">正在读取模型…</span>
+-              <div class="ag-dropdown-arrow">
+-                <svg viewBox="0 0 10 6" width="10" height="6" fill="none" stroke="currentColor" stroke-width="1.5"
+-                  stroke-linecap="round" stroke-linejoin="round">
+-                  <path d="M1 1l4 4 4-4" />
+-                </svg>
+-              </div>
+-            </div>
+-            <div id="ctx-model-dropdown-menu" class="ag-dropdown-menu ctx-model-dropdown-menu"></div>
+-          </div>
+-          <button id="btn-ctx-back-current" class="ctx-mini-link-btn" type="button" hidden title="回到当前会话正在使用的模型"
+-            data-i18n="panel.ctx.backCurrent" data-i18n-title="panel.ctx.backCurrentTitle">回到当前模型</button>
+-        </div>
+-        <div class="ctx-selector-hint" data-i18n="panel.ctx.viewModelHint">仅查看模型配置与实测数据；切换聊天模型请在输入框右侧选择。</div>
+-      </div>
+-
+-      <!-- 4. 模型列表（按厂商分组，仅在分别设置模式下呈现） -->
+-      <div id="ctx-model-list" class="ctx-model-list" aria-label="按厂商分组的模型产品列表" data-i18n-aria="models.list.aria"
+-        hidden></div>
+-
+-      <!-- 5. 选中模型的大卡片（主视图只展示当前模式、当前模型、当前使用长度；详细信息折叠至抽屉） -->
+-      <div id="ctx-model-card" class="ctx-detail-card">
+-        <div id="ctx-conflict-banner" class="ctx-conflict-banner" hidden>
+-          <div class="ctx-conflict-title" data-i18n="models.conflict.title">这个模型的不同档位保存过不同长度，请选一个统一值。</div>
+-          <div id="ctx-conflict-rows" class="ctx-conflict-rows"></div>
+-        </div>
+-
+-        <div class="ctx-card-top">
+-          <div class="ctx-card-vendor-row">
+-            <span class="ctx-card-vendor-left">
+-              <span id="ctx-card-vendor-dot" class="ag-vendor-dot"></span>
+-              <span id="ctx-card-vendor-name" class="ctx-card-vendor-name">—</span>
+-            </span>
+-            <span id="ctx-card-quota-slot" class="ctx-card-quota-slot" hidden></span>
+-          </div>
+-          <div id="ctx-card-product-name" class="ctx-card-product-name" data-i18n="models.card.waiting">等待读取模型…</div>
+-          <div class="ctx-card-efforts-row">
+-            <span id="ctx-card-efforts-list" class="ctx-card-efforts-list"
+-              data-i18n="models.card.effortsEmpty">可用档位：—</span>
+-            <span id="ctx-card-session-effort" class="ctx-card-session-effort" hidden>当前会话：—</span>
+-          </div>
+-        </div>
+-
+-        <!-- 主界面极简核心展示区：当前模式、当前模型、当前使用长度 -->
+-        <div class="ctx-summary-highlight-grid" id="ctx-summary-highlight-grid">
+-          <div class="ctx-summary-item">
+-            <span class="ctx-summary-label" data-i18n="models.summary.mode">当前模式</span>
+-            <span class="ctx-summary-value" id="ctx-summary-mode" data-i18n="models.mode.unifiedTitle">所有模型统一设置</span>
+-          </div>
+-          <div class="ctx-summary-item">
+-            <span class="ctx-summary-label" data-i18n="models.summary.model">当前模型</span>
+-            <span class="ctx-summary-value" id="ctx-summary-model">—</span>
+-          </div>
+-          <div class="ctx-summary-item ctx-summary-item-length">
+-            <span class="ctx-summary-label" data-i18n="models.summary.length">目标设置与状态</span>
+-            <div class="ctx-summary-length-row">
+-              <span class="ctx-summary-value ctx-length-val" id="ctx-summary-length"
+-                data-i18n="models.summary.modelDefault">使用模型默认值</span>
+-              <span class="key-pill pill-muted" id="ctx-summary-status-pill" hidden>待重启生效</span>
+-            </div>
+-          </div>
+-        </div>
+-
+-        <!-- 模型能力与当前生效参考（紧邻预算设置区，不隐藏） -->
+-        <div class="ctx-cap-ref-card" id="ctx-capability-ref">
+-          <div class="ctx-cap-ref-grid">
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.window">模型总窗口</span>
+-              <span class="ctx-cap-val" id="ctx-cap-window">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.output">最大输出</span>
+-              <span class="ctx-cap-val" id="ctx-cap-output">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.modelMax">模型理论输入上限</span>
+-              <span class="ctx-cap-val" id="ctx-cap-model-max">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.clientPolicy">当前客户端限制</span>
+-              <span class="ctx-cap-val" id="ctx-cap-client-policy">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.defaultCap">当前策略默认预算</span>
+-              <span class="ctx-cap-val" id="ctx-cap-default">—</span>
+-            </div>
+-            <div class="ctx-cap-item">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.range">当前可采纳输入范围</span>
+-              <span class="ctx-cap-val" id="ctx-cap-range">16,384 – 2,097,152</span>
+-            </div>
+-            <div class="ctx-cap-item ctx-cap-item-wide">
+-              <span class="ctx-cap-lbl" data-i18n="models.cap.formulaLbl">来源与计算说明</span>
+-              <span class="ctx-cap-sub" id="ctx-cap-formula">等待读取模型元数据…</span>
+-            </div>
+-          </div>
+-          <div class="ctx-cap-verify-strip" id="ctx-cap-verify-strip">
+-            <span class="ctx-cap-v-cell"><em data-i18n="models.cap.saved">已保存</em> <strong
+-                id="ctx-ref-saved">—</strong></span>
+-            <span class="ctx-cap-v-cell"><em data-i18n="models.cap.sent">最近请求携带</em> <strong
+-                id="ctx-ref-sent">尚无本次验证</strong></span>
+-            <span class="ctx-cap-v-cell"><em data-i18n="models.cap.adopted">后端实际采用</em> <strong
+-                id="ctx-ref-adopted">尚无本次验证</strong></span>
+-          </div>
+-          <div class="ctx-unified-proj" id="ctx-unified-projection" hidden></div>
+-        </div>
+-
+-        <!-- 折叠抽屉：详细信息（配置来源、请求参数、底座状态、实测预算） -->
+-        <div class="ctx-card-details-drawer">
+-          <button id="btn-toggle-card-details" class="drawer-trigger ctx-card-drawer-trigger" aria-expanded="false"
+-            type="button">
+-            <span class="drawer-trigger-left" data-i18n="models.card.detailsToggle">详细信息（配置来源、请求参数与预算验证）</span>
+-            <span id="ctx-card-drawer-arrow" class="drawer-arrow" data-i18n="session.techDrawer.expand">▼ 点击展开明细</span>
+-          </button>
+-          <div id="ctx-card-drawer-body" class="drawer-body ctx-card-drawer-body" style="display:none;">
+-            <div class="ctx-card-metrics">
+-              <div class="ctx-metric-row ctx-metric-saved">
+-                <span class="ctx-metric-label" data-i18n="models.card.saved">已保存</span>
+-                <span class="ctx-metric-value" id="ctx-card-saved" data-i18n="status.savedDefault">未单独设置（使用默认）</span>
+-                <span class="ctx-metric-side" data-i18n="models.card.savedSide">为这个模型记下的长度</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-request">
+-                <span class="ctx-metric-label" data-i18n="models.card.request">请求携带</span>
+-                <span class="ctx-metric-value" id="ctx-card-request">默认透传</span>
+-                <span class="ctx-metric-side" data-i18n="models.card.requestSide">本次请求发送给底座的参数</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-client">
+-                <span class="ctx-metric-label" data-i18n="models.card.client">底座状态</span>
+-                <span class="ctx-metric-value">
+-                  <span id="ctx-card-client" data-i18n="status.badge.reading">状态读取中…</span>
+-                  <span id="ctx-card-client-tag" class="key-pill pill-muted"
+-                    data-i18n="status.badge.reading">状态读取中…</span>
+-                </span>
+-                <span class="ctx-metric-side" data-i18n="models.card.clientSide">底座运行模式</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-observed">
+-                <span class="ctx-metric-label" data-i18n="models.card.observedBudget">实测预算</span>
+-                <div class="ctx-metric-value-col">
+-                  <span class="ctx-metric-value" id="ctx-card-observed-budget"
+-                    data-i18n="models.card.observedBudgetNone">尚未观测</span>
+-                  <span class="ctx-metric-pre-restart" id="ctx-card-pre-restart-budget" hidden></span>
+-                  <span class="ctx-metric-service-limit" id="ctx-card-service-limit" hidden></span>
+-                </div>
+-                <span class="ctx-metric-side" data-i18n="models.card.observedBudgetSide">对话中实际分配</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-convo">
+-                <span class="ctx-metric-label" data-i18n="models.card.convoIdTitle">对应会话</span>
+-                <span class="ctx-metric-value" id="ctx-card-convo">—</span>
+-                <span class="ctx-metric-side">发生调用的会话标识</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-diagnosis">
+-                <span class="ctx-metric-label" data-i18n="models.card.diagnosisTitle">生效诊断</span>
+-                <span class="ctx-metric-value" id="ctx-card-diagnosis">—</span>
+-                <span class="ctx-metric-side">目标值与观测值比对结果</span>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-observed">
+-                <span class="ctx-metric-label" data-i18n="models.card.observedSpeed">实测速度</span>
+-                <div class="ctx-metric-value-col">
+-                  <div id="ctx-card-observed-speed" class="ctx-speed-effort-lines"
+-                    data-i18n="models.card.observedSpeedNone">暂无实测数据</div>
+-                  <button id="btn-card-goto-speed" class="ctx-inline-link-btn" type="button"
+-                    data-i18n="models.card.gotoSpeed">查看速度对比 ›</button>
+-                </div>
+-              </div>
+-              <div class="ctx-metric-row ctx-metric-client" id="ctx-card-tier-caps-row" hidden>
+-                <span class="ctx-metric-label" data-i18n="models.card.tierCaps">档位能力</span>
+-                <div class="ctx-metric-value-col">
+-                  <div id="ctx-card-tier-caps" class="ctx-speed-effort-lines">—</div>
+-                </div>
+-              </div>
+-            </div>
+-            <div id="ctx-card-hints" class="ctx-card-hints" hidden></div>
+-          </div>
+-        </div>
+-      </div>
+-
+-      <!-- 4. 设置操作区 -->
+-      <div class="ctx-adjust-box" id="ctx-adjust-box">
+-        <div class="ctx-preset-grid" id="ctx-preset-grid" role="group" aria-label="上下文长度预设"
+-          data-i18n-aria="models.preset.aria">
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="default" data-ctx-limit="">
+-            <span class="ctx-preset-title" data-i18n="models.preset.default">恢复客户端默认</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.defaultSub">清除请求覆盖，由当前底座策略决定</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="fixed" data-ctx-limit="128000">
+-            <span class="ctx-preset-title">128,000</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.p128Sub">插件预设 · 128,000 tokens</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="fixed" data-ctx-limit="256000">
+-            <span class="ctx-preset-title">256,000</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.p256Sub">插件预设 · 256,000 tokens</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="fixed" data-ctx-limit="512000">
+-            <span class="ctx-preset-title">512,000</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.p512Sub">插件预设 · 512,000 tokens</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="model_max" data-ctx-limit="">
+-            <span class="ctx-preset-title" data-i18n="models.preset.modelMax">按模型最大可用</span>
+-            <span class="ctx-preset-sub" id="ctx-preset-modelmax-sub" data-i18n="models.preset.modelMaxSub">总窗口 -
+-              最大输出（需元数据）</span>
+-          </button>
+-          <button type="button" class="ctx-preset-btn" data-ctx-mode="dynamic" data-ctx-limit="">
+-            <span class="ctx-preset-title" data-i18n="models.preset.dynamic">动态跟随</span>
+-            <span class="ctx-preset-sub" data-i18n="models.preset.dynamicSub">不固定数值，按底座动态计算</span>
+-          </button>
+-        </div>
+-
+-        <div class="ctx-custom-row">
+-          <label for="ctx-custom-limit-input" class="ctx-small-label" data-i18n="models.custom.label">自定义长度</label>
+-          <div class="ctx-custom-input-wrap">
+-            <input id="ctx-custom-limit-input" class="ctx-custom-input" type="text" inputmode="numeric"
+-              placeholder="输入整数，例如 300000" data-i18n-placeholder="models.custom.placeholder" autocomplete="off">
+-            <span class="ctx-input-unit">tokens</span>
+-          </div>
+-        </div>
+-        <div id="ctx-limit-validation" class="ctx-validation-msg" data-i18n="models.validation.defaultRange">
+-          可设置范围：16,384 – 2,097,152 tokens。</div>
+-
+-        <div class="ctx-pref-actions">
+-          <button id="btn-save-model-ctx" class="unlock-btn unlock-btn-secondary" type="button"
+-            data-i18n="models.btn.save">保存</button>
+-          <button id="btn-apply-unlock" class="unlock-btn unlock-btn-primary" type="button"
+-            data-i18n="models.btn.saveApply">保存并应用</button>
+-          <button id="btn-reset-model-ctx" class="ctx-text-action-btn" type="button"
+-            data-i18n="models.btn.reset">恢复默认</button>
+-        </div>
+-
+-        <div id="ctx-reset-notice" class="ctx-reset-notice" hidden></div>
+-
+-        <div class="ctx-plain-help">
+-          <div data-i18n="models.help.line1">保存：记住当前模型的设置。底座引擎：一次性解除 256K 限制并启用动态跟随。</div>
+-          <div data-i18n="models.help.line2">各模型根据保存的设置独立生效，多会话与模型切换互不干扰。</div>
+-        </div>
+-
+-        <div id="unlock-result-box" class="unlock-result-box" style="display:none;">
+-          <div id="unlock-result-text" class="unlock-result-text"></div>
+-          <div id="unlock-result-actions" class="unlock-result-actions" hidden>
+-            <button id="btn-unlock-result-restart" class="unlock-btn unlock-btn-primary" type="button" hidden
+-              data-i18n="models.restartBtn">重启客户端使设置生效</button>
+-            <button id="btn-unlock-result-retry" class="unlock-btn unlock-btn-secondary" type="button" hidden
+-              data-i18n="models.btn.retryApply">重新检测并应用</button>
+-          </div>
+-          <div id="unlock-result-manual" class="ctx-result-manual-note" hidden data-i18n="models.manualRestart">
+-            请手动重启：关闭所有 Antigravity 窗口（包括托盘图标里的“退出”），再重新打开 Antigravity。</div>
+-        </div>
+-      </div>
+-
+-      <!-- 5. 唯一保留的折叠区：详细说明 -->
+-      <div class="tech-drawer" id="context-unlock-drawer">
+-        <button id="btn-toggle-unlock-details" class="drawer-trigger" aria-expanded="false" type="button">
+-          <span class="drawer-trigger-left">
+-            <span data-i18n="models.details.title">详细说明</span>
+-          </span>
+-          <span id="unlock-drawer-arrow" class="drawer-arrow" data-i18n="drawer.expand">▼ 展开</span>
+-        </button>
+-        <div id="unlock-drawer-body" class="drawer-body" style="display:none;">
+-          <div class="unlock-panel-content">
+-            <div class="unlock-notice">
+-              <ol class="unlock-notice-list ctx-detail-ol">
+-                <li data-i18n-html="models.details.li1"><strong>底座解锁与按模型请求注入的分工</strong>：客户端语言服务原版会对默认与回落预算实施 256,000
+-                  tokens 钳位（256K 限制点），并允许远程实验覆写。底座解锁用于一次性开启「动态跟随（Dynamic）」默认策略并屏蔽远程实验覆写；每次发送消息时，插件再按当次请求实际选中的模型在请求参数
+-                  <code>checkpointConfig.maxTokenLimit</code> 中写入你设定的预算。若设定超过 256,000 tokens，仍需底座处于「动态跟随」已解锁状态。</li>
+-                <li data-i18n-html="models.details.li2">
+-                  <strong>多项安全检查点说明</strong>：客户端包含默认/钳位双检查点、远程实验覆写拦截点以及上下文窗口序列上限检查点；本插件只依赖本地偏好配合每次请求参数写入实现按模型隔离，不会在切换模型时反复改写宿主程序文件。
+-                </li>
+-                <li data-i18n-html="models.details.li3"><strong>恢复客户端默认 vs
+-                    按模型最大可用</strong>：「恢复客户端默认」仅清除请求级覆盖参数，把决定权交回当前语言服务的全局策略（若已开启「动态跟随」则走模型动态默认，无法逐模型单切回原版 256K
+-                  钳位）；「按模型最大可用」则按 IDE 元数据公式 <code>maxTokens - maxOutputTokens</code> 计算并显式发送该整数上限。</li>
+-                <li data-i18n-html="models.details.li4"><strong>几个数字的区别</strong>：
+-                  <div>模型总窗口 / 最大输出：来自 IDE 模型目录与步骤元数据，不代表实际已分配配额。</div>
+-                  <div>已保存：你为当前模型或统一模式保存的目标值。</div>
+-                  <div>最近请求携带 / 后端实际采用：按当前会话与模型轮次严格隔离对照，尚无对应发送时显示「尚无本次验证」。</div>
+-                  <div>服务端报错上限：仅当请求被服务端拒绝且报错给出明确数字时出现。</div>
+-                </li>
+-                <li data-i18n-html="models.details.li5"><strong>工程范围与预设说明</strong>：128,000 / 256,000 / 512,000
+-                  属于插件预设；合法自定义工程范围为 16,384 – 2,097,152 任意整数 tokens，真实超长请求能否被服务端接受取决于各模型自身配额与风控策略。</li>
+-              </ol>
+-            </div>
+-
+-            <div class="unlock-actions-row">
+-              <button id="btn-restore-unlock" class="unlock-btn unlock-btn-secondary" type="button"
+-                data-i18n="models.btn.restoreOriginal">客户端恢复原始设置</button>
+-              <button id="btn-refresh-unlock" class="unlock-btn unlock-btn-secondary" type="button" title="重新检测状态"
+-                data-i18n="models.btn.refreshStatus" data-i18n-title="models.btn.refreshStatus">刷新状态</button>
+-            </div>
+-
+-            <div id="unlock-status-desc" class="unlock-desc" style="margin-top:8px;"
+-              data-i18n="models.status.detecting">正在检测当前 Antigravity 状态…</div>
+-            <dl class="unlock-meta-dl">
+-              <dt data-i18n="models.meta.mode">当前配置 / 实测</dt>
+-              <dd id="unlock-meta-mode">—</dd>
+-              <dt data-i18n="models.meta.target">目标进程</dt>
+-              <dd id="unlock-meta-target">—</dd>
+-              <dt data-i18n="models.meta.arch">系统架构</dt>
+-              <dd id="unlock-meta-arch">—</dd>
+-              <dt data-i18n="models.meta.backup">原版备份状态</dt>
+-              <dd id="unlock-meta-backup">—</dd>
+-            </dl>
+-
+-            <div class="unlock-credit-bar">
+-              <div class="unlock-credit-left">
+-                <span class="unlock-credit-lbl" data-i18n="models.credit.source">方案来源：</span>
+-                <a id="link-unlock-author" href="https://linux.do/t/topic/3117832" target="_blank"
+-                  rel="noopener noreferrer" class="unlock-author-link" role="link" tabindex="0"
+-                  title="点击在系统默认浏览器中打开原作者帖子" data-i18n="models.credit.author">原作者帖子 (Linux.do @23375) ↗</a>
+-                <button id="btn-copy-unlock-link" class="unlock-copy-link-btn" type="button" title="复制原作者帖子链接"
+-                  data-i18n="models.credit.copy">📋 复制链接</button>
+-              </div>
+-              <span class="unlock-adapter-note" data-i18n="models.credit.adapter">本项目负责 Node.js 适配与集成</span>
+-            </div>
+-            <div id="unlock-link-toast" class="unlock-link-toast" style="display:none;" role="status"></div>
+-          </div>
+-        </div>
+-      </div>
+-    </div>
+-
+     <!-- 分页 3: 速度对比 -->
+     <div id="pane-ctx-speed" class="ctx-tab-pane" role="tabpanel" aria-labelledby="tab-ctx-speed" hidden>
+       <div class="ctx-speed-toolbar">
+@@ -740,74 +350,8 @@
+         主动测试：未接通。目前没有可靠的指定模型调用入口，暂时只能使用日常对话的实测记录。</div>
+     </div>
+ 
+-    <!-- 设置与系统配置 (第四分页: 配置 / setting) -->
++    <!-- 设置与系统配置 (分页 3: 配置 / setting) -->
+     <div id="pane-ctx-settings" class="ctx-tab-pane" role="tabpanel" aria-labelledby="tab-ctx-settings" hidden>
+-      <!-- 1. 一键推荐配置与总览（默认不自动应用，需用户预览勾选并确认） -->
+-      <div class="ctx-settings-card" id="enhance-preset-card">
+-        <div class="ctx-settings-card-hdr">
+-          <div class="ctx-settings-card-title" data-i18n="enhance.preset.title">✨ 一键推荐配置（按需勾选预览）</div>
+-          <span id="enhance-global-badge" class="key-pill pill-muted" data-i18n="settings.common.reading">读取中…</span>
+-        </div>
+-        <div class="ctx-settings-card-desc" data-i18n="enhance.preset.desc">正常安装默认保持客户端原样。下方列出推荐增强组合；只有你勾选并确认后才会实际写入。
+-        </div>
+-        <div class="ctx-preset-checklist">
+-          <label class="ctx-preset-check-item">
+-            <input id="chk-rec-prompt" type="checkbox" checked>
+-            <div class="ctx-preset-check-meta">
+-              <strong data-i18n="enhance.preset.itemPrompt">系统提示词 4 档（极简防幻觉）</strong>
+-              <span data-i18n="enhance.preset.itemPromptSub">精简模板套话并保留真实工具契约；仅作用于系统提示，不能保证模型永不犯错。</span>
+-            </div>
+-          </label>
+-          <label class="ctx-preset-check-item">
+-            <input id="chk-rec-title" type="checkbox" checked>
+-            <div class="ctx-preset-check-meta">
+-              <strong data-i18n="enhance.preset.itemTitle">自动中文会话标题</strong>
+-              <span data-i18n="enhance.preset.itemTitleSub">新会话自动生成简体中文标题（等长替换指令文本，不破坏结构）。</span>
+-            </div>
+-          </label>
+-          <label class="ctx-preset-check-item">
+-            <input id="chk-rec-lang" type="checkbox" checked>
+-            <div class="ctx-preset-check-meta">
+-              <strong data-i18n="enhance.preset.itemLang">客户端简体中文界面（Antigravity 本身）</strong>
+-              <span data-i18n="enhance.preset.itemLangSub">仅改变桌面端壳层中文，不影响你选择的插件面板语言。</span>
+-            </div>
+-          </label>
+-          <label class="ctx-preset-check-item">
+-            <input id="chk-rec-ctx" type="checkbox" checked>
+-            <div class="ctx-preset-check-meta">
+-              <strong data-i18n="enhance.preset.itemCtx">上下文模式：跟随模型</strong>
+-              <span data-i18n="enhance.preset.itemCtxSub">按模型各自支持的最大长度运行，不硬锁固定 983,040 或 512,000。</span>
+-            </div>
+-          </label>
+-        </div>
+-        <div class="ctx-settings-card-actions">
+-          <button id="btn-enhance-preset-apply" class="unlock-btn unlock-btn-primary" type="button"
+-            data-i18n="enhance.preset.applyBtn">应用所选推荐配置</button>
+-          <button id="btn-enhance-restore-all" class="unlock-btn unlock-btn-danger" type="button"
+-            data-i18n="enhance.restoreAll.btn">全部恢复官方默认</button>
+-        </div>
+-        <div id="enhance-preset-confirm" class="ctx-enhance-confirm" hidden>
+-          <div id="enhance-preset-confirm-text"></div>
+-          <div class="ctx-enhance-confirm-actions">
+-            <button id="btn-enhance-confirm-cancel" class="unlock-btn unlock-btn-secondary" type="button"
+-              data-i18n="models.restartConfirm.cancel">取消</button>
+-            <button id="btn-enhance-confirm-go" class="unlock-btn unlock-btn-primary" type="button"
+-              data-i18n="enhance.confirm.go">确认应用</button>
+-          </div>
+-        </div>
+-        <div id="enhance-global-result" class="unlock-result-box" style="display:none;">
+-          <div id="enhance-global-result-text" class="unlock-result-text"></div>
+-          <div id="enhance-global-result-actions" class="unlock-result-actions" hidden>
+-            <button id="btn-enhance-restart-ls" class="unlock-btn unlock-btn-secondary" type="button"
+-              data-i18n="enhance.btn.restartLs">重启语言服务</button>
+-            <button id="btn-enhance-restart-host" class="unlock-btn unlock-btn-primary" type="button"
+-              data-i18n="models.restartBtn">重启客户端使设置生效</button>
+-          </div>
+-          <div id="enhance-global-manual-note" class="ctx-result-manual-note" hidden data-i18n="models.manualRestart">
+-            请手动重启：关闭所有 Antigravity 窗口（包括托盘图标里的“退出”），再重新打开 Antigravity。</div>
+-        </div>
+-      </div>
+-
+       <!-- 2. 客户端界面语言与品牌标题 (Antigravity 本身) -->
+       <div class="ctx-settings-card" id="client-brand-lang-card">
+         <div class="ctx-settings-card-hdr">
+@@ -842,130 +386,14 @@
+           <button id="btn-apply-brand-title" class="unlock-btn unlock-btn-secondary" type="button"
+             data-i18n="enhance.brand.applyBtn">保存品牌选择并应用</button>
+         </div>
+-      </div>
+-
+-      <!-- 3. 回答与工具使用规则 (原防幻觉档位) 与自动中文标题 -->
+-      <div class="ctx-settings-card" id="enhance-prompt-card">
+-        <div class="ctx-settings-card-hdr">
+-          <div class="ctx-settings-card-title" data-i18n="enhance.prompt.title">🧠 回答与工具使用规则</div>
+-          <span id="enhance-prompt-badge" class="key-pill pill-muted" data-i18n="settings.common.reading">读取中…</span>
+-        </div>
+-        <!-- 第一层：默认可见的白话说明 -->
+-        <div class="ctx-plain-help"
+-          style="margin:4px 0 8px 0;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);border-radius:6px;padding:8px 10px;">
+-          <div style="font-size:11.5px;line-height:1.55;color:var(--ag-text-primary);"
+-            data-i18n="enhance.prompt.plainIntro">
+-            调整客户端给 AI 的工作说明，让它更重视证据：没读过的文件不猜，没运行的测试不说通过。它不会升级模型底层能力，也不能保证回答永远正确。
+-          </div>
+-          <div id="enhance-tier-current-desc"
+-            style="font-size:11px;line-height:1.5;color:var(--ag-text-secondary);margin-top:4px;">
+-            当前档位说明加载中…
+-          </div>
+-        </div>
+-        <div class="ctx-enhance-status-grid">
+-          <div class="ctx-enhance-stat">
+-            <div class="ctx-enhance-stat-lbl" data-i18n="enhance.stat.prompt">当前检测档位</div>
+-            <div id="enhance-stat-prompt" class="ctx-enhance-stat-val">—</div>
+-          </div>
+-          <div class="ctx-enhance-stat">
+-            <div class="ctx-enhance-stat-lbl" data-i18n="enhance.stat.title">自动中文标题</div>
+-            <div id="enhance-stat-title" class="ctx-enhance-stat-val">—</div>
+-          </div>
+-          <div class="ctx-enhance-stat">
+-            <div class="ctx-enhance-stat-lbl" data-i18n="enhance.stat.evidence">证据检测状态</div>
+-            <div id="enhance-stat-slots" class="ctx-enhance-stat-val">—</div>
+-          </div>
+-          <div class="ctx-enhance-stat">
+-            <div class="ctx-enhance-stat-lbl" data-i18n="enhance.stat.backup">原版内核备份</div>
+-            <div id="enhance-stat-backup" class="ctx-enhance-stat-val">—</div>
+-          </div>
+-        </div>
+-        <div id="enhance-tier-grid" class="ctx-tier-grid" role="group" aria-label="规则档位"
+-          data-i18n-aria="enhance.prompt.aria">
+-          <button id="enhance-tier-0" class="ctx-tier-btn" type="button" data-enhance-tier="0">
+-            <span class="ctx-tier-num">0</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.0.short">原版</span>
+-          </button>
+-          <button id="enhance-tier-1" class="ctx-tier-btn" type="button" data-enhance-tier="1">
+-            <span class="ctx-tier-num">1</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.1.short">基础</span>
+-          </button>
+-          <button id="enhance-tier-2" class="ctx-tier-btn" type="button" data-enhance-tier="2">
+-            <span class="ctx-tier-num">2</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.2.short">精简</span>
+-          </button>
+-          <button id="enhance-tier-3" class="ctx-tier-btn" type="button" data-enhance-tier="3">
+-            <span class="ctx-tier-num">3</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.3.short">深度</span>
+-          </button>
+-          <button id="enhance-tier-4" class="ctx-tier-btn" type="button" data-enhance-tier="4">
+-            <span class="ctx-tier-num">4</span>
+-            <span class="ctx-tier-name" data-i18n="enhance.tier.4.short">极简</span>
+-          </button>
+-        </div>
+-        <div id="enhance-tier-matrix" class="ctx-tier-matrix">
+-          <div id="enhance-tier-matrix-title" class="ctx-tier-matrix-title">—</div>
+-          <div class="ctx-tier-matrix-row">
+-            <span class="ctx-tier-matrix-k" data-i18n="enhance.matrix.keeps">保留</span>
+-            <span id="enhance-tier-keeps" class="ctx-tier-matrix-v">—</span>
+-          </div>
+-          <div class="ctx-tier-matrix-row">
+-            <span class="ctx-tier-matrix-k" data-i18n="enhance.matrix.clears">清空</span>
+-            <span id="enhance-tier-clears" class="ctx-tier-matrix-v">—</span>
+-          </div>
+-          <div class="ctx-tier-matrix-row">
+-            <span class="ctx-tier-matrix-k" data-i18n="enhance.matrix.replaces">替换</span>
+-            <span id="enhance-tier-replaces" class="ctx-tier-matrix-v">—</span>
+-          </div>
+-          <div class="ctx-tier-matrix-row">
+-            <span class="ctx-tier-matrix-k" data-i18n="enhance.matrix.meaning">对你的影响</span>
+-            <span id="enhance-tier-meaning" class="ctx-tier-matrix-v">—</span>
+-          </div>
+-        </div>
+-        <div id="enhance-hallucination-note" class="ctx-tier-note-warn" data-i18n="enhance.hallucinationNote">
+-          说明：规则档位通过精简冗余指引并强化真实工具核对来规范行为。高档位删减提示模板中的工作指引，不等于删除用户文件或工件本身；是否影响具体能力需在对话中实际验证。</div>
+-        <label class="ctx-toggle-row">
+-          <div class="ctx-toggle-row-text">
+-            <span class="ctx-toggle-row-title" data-i18n="enhance.titlePatch.label">自动生成简体中文会话标题</span>
+-            <span class="ctx-toggle-row-sub" data-i18n="enhance.titlePatch.sub">等长替换会话命名提示词，不破坏原有长度对齐；支持随时改回官方英文。</span>
+-          </div>
+-          <input id="chk-enhance-chinese-title" type="checkbox">
+-        </label>
+-        <div class="ctx-settings-card-actions">
+-          <button id="btn-enhance-apply-prompt" class="unlock-btn unlock-btn-primary" type="button"
+-            data-i18n="enhance.btn.applyPrompt">应用提示词与标题设置</button>
+-          <button id="btn-enhance-refresh" class="unlock-btn unlock-btn-secondary" type="button"
+-            data-i18n="models.btn.refreshStatus">刷新状态</button>
+-        </div>
+-        <div id="enhance-prompt-result" class="unlock-result-box" style="display:none;">
+-          <div id="enhance-prompt-result-text" class="unlock-result-text"></div>
+-        </div>
+-
+-        <!-- 第二层：可展开的“详细说明” -->
+-        <div class="tech-drawer" id="enhance-details-drawer" style="margin-top:4px">
+-          <button id="btn-toggle-enhance-details" class="drawer-trigger" aria-expanded="false" type="button">
+-            <span class="drawer-trigger-left" data-i18n="enhance.details.toggle">详细说明：来源范围、三层状态与检测依据</span>
+-            <span id="enhance-details-arrow" class="drawer-arrow" data-i18n="drawer.expand">▼ 展开</span>
+-          </button>
+-          <div id="enhance-details-body" class="drawer-body" style="display:none;">
+-            <div class="unlock-panel-content">
+-              <div class="unlock-notice">
+-                <div class="unlock-desc" data-i18n="enhance.details.body">方案来源：PR #4 (Jia131313) 与 PR #3 (anyu0804 /
+-                  Linux.do @23375)，由本项目进行本地适配、工具契约安全核对与多语言整合。<br><br>
+-                  <strong>修改目标程序</strong>：仅修改本地桌面端语言服务核心程序内嵌模板表；不改动任何云端模型，亦不影响 CLI 以外的外部环境。<br><br>
+-                  <strong>三层状态区别</strong>：<br>
+-                  1. <strong>写入状态</strong>：检测目标程序磁盘文件已覆写指定槽位（安全空格对齐填充，零结构偏移）。<br>
+-                  2. <strong>服务加载状态</strong>：需完全退出并重启客户端后，由新启动的语言服务进程加载读取。<br>
+-                  3. <strong>行为效果验证</strong>：提示词仅是 AI 的工作指南，不能保证永不犯错；实际表现需由用户在真实会话中体验，不宣称数学上的绝对消除。
+-                </div>
+-              </div>
+-              <div id="enhance-binary-list" class="unlock-desc" style="margin-top:6px;"></div>
+-              <div class="unlock-credit-row">
+-                <span class="unlock-credit-lbl"
+-                  data-i18n="enhance.details.credit">恢复操作：点击上方“全部恢复官方默认”将无损还原官方备份模板。</span>
+-              </div>
+-            </div>
++        <div id="enhance-global-result" class="unlock-result-box" style="display:none;">
++          <div id="enhance-global-result-text" class="unlock-result-text"></div>
++          <div id="enhance-global-result-actions" class="unlock-result-actions" hidden>
++            <button id="btn-enhance-restart-host" class="unlock-btn unlock-btn-primary" type="button"
++              data-i18n="models.restartBtn">重启客户端使设置生效</button>
+           </div>
++          <div id="enhance-global-manual-note" class="ctx-result-manual-note" hidden data-i18n="models.manualRestart">
++            请手动重启：关闭所有 Antigravity 窗口（包括托盘图标里的“退出”），再重新打开 Antigravity。</div>
+         </div>
+       </div>
+     </div>
+@@ -977,149 +405,6 @@
+     <div id="chinese-drawer-body" style="display:none;"><span id="chinese-drawer-arrow"></span></div>
+   </div>
+ 
+-  <!-- 5. 免 TUN 网络直连 (AntigravityProxyNoTun) -->
+-  <div class="tech-drawer" id="proxy-notun-drawer">
+-    <button id="btn-toggle-proxy" class="drawer-trigger" aria-expanded="false" type="button">
+-      <span class="drawer-trigger-left">
+-        <span data-i18n="settings.proxy.title">🌐 免 TUN 网络直连（本地代理）</span>
+-        <span id="proxy-badge" class="key-pill pill-muted" style="margin-left:6px;font-size:10.5px;"
+-          data-i18n="settings.common.reading">读取中…</span>
+-      </span>
+-      <span id="proxy-drawer-arrow" class="drawer-arrow" data-i18n="drawer.expand">▼ 展开</span>
+-    </button>
+-    <div id="proxy-drawer-body" class="drawer-body" style="display:none;">
+-      <div class="unlock-panel-content">
+-        <div class="unlock-status-row">
+-          <div class="unlock-status-meta">
+-            <div class="unlock-label" data-i18n="settings.proxy.statusLabel">代理直连配置与状态</div>
+-            <div id="proxy-status-desc" class="unlock-desc" data-i18n="settings.proxy.checking">正在核对代理设置…</div>
+-          </div>
+-        </div>
+-        <div style="display:flex;flex-direction:column;gap:8px;margin:8px 0;">
+-          <label style="font-size:11px;color:var(--ag-text-secondary);display:flex;flex-direction:column;gap:4px;">
+-            <span data-i18n="settings.proxy.urlLabel">本地代理地址 (例如 http://127.0.0.1:7897 或 socks5://...)：</span>
+-            <input id="input-proxy-url" type="text" class="unlock-input"
+-              style="padding:4px 8px;font-size:11px;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);color:var(--ag-text-primary);border-radius:4px;"
+-              value="http://127.0.0.1:7897" />
+-          </label>
+-          <label style="font-size:11px;color:var(--ag-text-secondary);display:flex;flex-direction:column;gap:4px;">
+-            <span data-i18n="settings.proxy.bypassLabel">绕过代理列表 (NO_PROXY)：</span>
+-            <input id="input-proxy-bypass" type="text" class="unlock-input"
+-              style="padding:4px 8px;font-size:11px;background:var(--ag-bg-subcard);border:1px solid var(--ag-border-subcard);color:var(--ag-text-primary);border-radius:4px;"
+-              value="localhost,127.0.0.1,::1,<local>" />
+-          </label>
+-        </div>
+-        <div class="unlock-actions" style="display:flex;gap:8px;flex-wrap:wrap;">
+-          <button id="btn-test-proxy" class="unlock-btn unlock-btn-secondary" type="button"
+-            data-i18n="settings.proxy.testBtn">🔍 测试代理连通性</button>
+-          <button id="btn-save-proxy-config" class="unlock-btn unlock-btn-secondary" type="button" hidden
+-            data-i18n="mod.proxy.btnSave">保存代理设置</button>
+-          <button id="btn-toggle-proxy-module" class="unlock-btn unlock-btn-primary" type="button"
+-            data-i18n="mod.proxy.btnEnable">开启免 TUN 直连</button>
+-        </div>
+-        <div id="proxy-test-result" style="font-size:11px;margin-top:6px;display:none;color:var(--ag-text-secondary);">
+-        </div>
+-      </div>
+-    </div>
+-  </div>
+-
+-  <!-- 6. 面板背景与指标颜色自定义 -->
+-  <div class="tech-drawer">
+-    <button id="btn-toggle-colors" class="drawer-trigger" aria-expanded="false" type="button">
+-      <span class="drawer-trigger-left"><span data-i18n="settings.colors.title">🎨 指标与背景颜色自定义（默认跟随主题）</span></span>
+-      <span id="color-drawer-arrow" class="drawer-arrow" data-i18n="drawer.expandSettings">▼ 展开设置</span>
+-    </button>
+-    <div id="color-drawer-body" class="drawer-body" style="display:none;">
+-      <div class="color-grid">
+-        <div class="color-item" style="grid-column:1 / -1">
+-          <span class="color-item-lbl" data-i18n="settings.colors.panelBg">面板与菜单统一背景色（0级跟随 / 自定义）</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-panelBg" class="color-picker" type="color" value="#181818"
+-              data-i18n-aria="settings.colors.panelBg" aria-label="面板背景色" />
+-            <button id="swatch-panelBg" class="color-swatch-btn" type="button" data-color-slot="panelBg"
+-              data-color-label="面板与菜单背景色" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-panelBg" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.ringUsed">圆环已用部分</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-ringUsed" class="color-picker" type="color" value="#e6e6eb"
+-              data-i18n-aria="settings.colors.ringUsed" aria-label="上下文圆环已用部分颜色" />
+-            <button id="swatch-ringUsed" class="color-swatch-btn" type="button" data-color-slot="ringUsed"
+-              data-color-label="圆环已用部分" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-ringUsed" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.ringTrack">圆环轨道</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-ringTrack" class="color-picker" type="color" value="#52525b"
+-              data-i18n-aria="settings.colors.ringTrack" aria-label="圆环轨道颜色" />
+-            <button id="swatch-ringTrack" class="color-swatch-btn" type="button" data-color-slot="ringTrack"
+-              data-color-label="圆环轨道" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-ringTrack" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.contextText">上下文用量文字</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-contextText" class="color-picker" type="color" value="#ececef"
+-              data-i18n-aria="settings.colors.contextText" aria-label="上下文用量文字颜色" />
+-            <button id="swatch-contextText" class="color-swatch-btn" type="button" data-color-slot="contextText"
+-              data-color-label="上下文用量文字" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-contextText" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.speedText">输出速度</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-speedText" class="color-picker" type="color" value="#38bdf8"
+-              data-i18n-aria="settings.colors.speedText" aria-label="输出速度颜色" />
+-            <button id="swatch-speedText" class="color-swatch-btn" type="button" data-color-slot="speedText"
+-              data-color-label="输出速度" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-speedText" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.tokenTotal">累计 token 用量</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-tokenTotal" class="color-picker" type="color" value="#c084fc"
+-              data-i18n-aria="settings.colors.tokenTotal" aria-label="累计 token 用量颜色" />
+-            <button id="swatch-tokenTotal" class="color-swatch-btn" type="button" data-color-slot="tokenTotal"
+-              data-color-label="累计 token 用量" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-tokenTotal" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-        <div class="color-item">
+-          <span class="color-item-lbl" data-i18n="settings.colors.tokenAccent">其他 token 指标</span>
+-          <div class="color-item-ctrls">
+-            <input id="color-tokenAccent" class="color-picker" type="color" value="#a78bfa"
+-              data-i18n-aria="settings.colors.tokenAccent" aria-label="其他 token 指标颜色" />
+-            <button id="swatch-tokenAccent" class="color-swatch-btn" type="button" data-color-slot="tokenAccent"
+-              data-color-label="其他 token 指标" data-i18n-title="colors.swatchTitle" title="点击打开颜色选取器"></button>
+-            <button id="reset-tokenAccent" class="color-reset-btn" type="button" data-mode="auto"
+-              data-i18n="colors.followTheme">跟随主题</button>
+-          </div>
+-        </div>
+-      </div>
+-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px">
+-        <span style="font-size:10.5px;color:var(--ag-text-muted)"
+-          data-i18n="settings.colors.note">注：高占用与超限告警色独立保留，不被常态颜色覆盖。</span>
+-        <button id="reset-all-colors" class="color-reset-btn" type="button"
+-          data-i18n="settings.colors.resetAll">全部恢复跟随主题</button>
+-      </div>
+-    </div>
+-  </div>
+-  </div>
+-  </div>
+-
+   <!-- 全局统一居中重启确认模态弹窗（立即可见，支持顶部、底部与配置区所有重启入口） -->
+   <div id="global-restart-modal" class="ag-modal-overlay" hidden role="dialog" aria-modal="true"
+     aria-labelledby="modal-restart-title">

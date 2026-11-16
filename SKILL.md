@@ -1,31 +1,32 @@
 ---
 name: antigravity-chuanban-context-suite
-description: Deploy, adapt, and verify the integrated Antigravity desktop UI suite on Windows, macOS, or Linux — a Claude-style Antigravity beautification and localization plugin (仿Claude风格的antigravity反重力美化插件): Chuanban theme patch (with i18n/metrics disabled and high-priority z-index popup stacking) plus streamlined Antigravity ContextViewer (v3.3.4 Chinese i18n, removed 256K/ProxyNoTun/color drawers, 580px capped popup, conservative anti-lag optimizations, pure CDP + dynamic loopback HTTP bridge daemon without modifying app.asar). Use when setting up a new machine, cloning this skill from GitHub, re-applying after Antigravity updates, or troubleshooting missing titlebar meter, i18n, or popup layering.
+description: Deploy, adapt, and verify the integrated Antigravity desktop UI suite on Windows, macOS, or Linux — a Claude-style Antigravity beautification and localization plugin (仿Claude风格的antigravity反重力美化插件): Chuanban theme patch v5.3.0 (with i18n/metrics disabled and high-priority z-index popup stacking) plus streamlined Antigravity ContextViewer v0.8.5 (Quota Ring, Speed tab, v3.3.4 Chinese i18n with Chuanban v5.3.0 dictionary fallback, removed Models/256K/Enhance/ProxyNoTun/color drawers, 580px capped popups, conservative anti-lag optimizations, pure CDP + dynamic loopback HTTP bridge daemon without modifying app.asar). Use when setting up a new machine, cloning this skill from GitHub, upgrading an existing installation, re-applying after Antigravity updates, or troubleshooting missing titlebar meter, quota popover, i18n, or popup layering.
 ---
 
 # Antigravity Chuanban + ContextViewer Suite
 
-This skill automates setup and verification for **Antigravity Desktop** by integrating two upstream repositories through a CDP + loopback HTTP daemon architecture:
+This skill automates installation, upgrade, and verification for **Antigravity Desktop** by integrating two upstream repositories through a pure CDP + loopback HTTP daemon architecture:
 
-1. **Chuanban Theme Patch** (`https://github.com/Anarcadia/chuanban-antigravity-theme-patch`)
-   - Installs Chuanban typography and theme styling alongside its background CDP daemon (`antigravity-font-daemon.mjs`).
-   - Applies adapted configuration ([`assets/theme-user-config.json`](assets/theme-user-config.json)): disables Chuanban's conflicting `i18n` and `metrics` modules (`false`), while keeping `composerWaxSeal`, `deadlockHealer`, `customCss`, and `customJs` enabled (`true`).
-   - Applies popup stacking script ([`assets/theme-user-custom.js`](assets/theme-user-custom.js)): promotes `#ag-context-meter` and stacking ancestors to `z-index: 2147483500` when any meter popup is open (restoring original styles when closed) and coordinates `window.electronNative?.wcvBrowser?.setPortalOverlayOpen` so native WebContentsView browser panes do not overlap the panel.
+1. **Chuanban Theme Patch** (`https://github.com/Anarcadia/chuanban-antigravity-theme-patch`, verified with `v5.3.0` / Antigravity `2.32.1`)
+   - Installs Chuanban typography, curtain/Swarm fixes, and theme styling alongside its background CDP daemon (`antigravity-font-daemon.mjs` -> `core/daemon.mjs`).
+   - Applies adapted configuration ([`assets/theme-user-config.json`](assets/theme-user-config.json)): disables Chuanban's overlapping `i18n` and `metrics` modules (`false`), while keeping `composerWaxSeal`, `deadlockHealer`, `coldBootHealer`, `zoomShortcuts`, `customCss`, and `customJs` enabled (`true`).
+   - Applies popup stacking script ([`assets/theme-user-custom.js`](assets/theme-user-custom.js)): promotes `#ag-context-meter` and stacking ancestors to `z-index: 2147483500` when any meter or quota popup (`#panel`, `#panel-quota`, `#panel-tokens`, `#overflow-menu`, etc.) is open (restoring original styles on close), coordinates `window.electronNative?.wcvBrowser?.setPortalOverlayOpen` so native WebContentsView panes do not cover panels, and observes parent `childList` + capture-phase `click`/`pointerdown` so dynamically re-injected meter hosts rebind immediately.
 
-2. **Antigravity ContextViewer** (`https://github.com/elviscjn-cjn/antigravity-context-viewer`) + [`patches/context-viewer.patch`](patches/context-viewer.patch)
-   - Pinned verified base commit: `a204823f597e1aee482f35574798ecbec61874c9`.
-   - Retains the titlebar context meter, `v3.3.4` runtime Chinese localization (`chinese` module), and `Escape`/outside-click panel dismissal.
-   - Removes unwanted UI (`unlock-256k-drawer`, `proxy-notun-drawer`, `btn-toggle-colors`, and upstream auto-update prompts) and caps `#panel` height (`max-height: 580px`).
-   - Routes renderer backend requests through `window.__AGContextMeterLive` + `callLiveBridge` (`http://127.0.0.1:<livePort>`).
-   - Applies conservative anti-lag optimizations:
-     - `meter-renderer.js`: `hostDomObserver` checks `observedTitlebar` first; `tick()` staggers `/scan` by `900ms` on live route switches and deduplicates `/token-history` within `5s`.
-     - `i18n/i18n-runtime.js`: `flushPendingNodes` time-slices DOM work in `8ms` `requestAnimationFrame` batches; `translateSingleUnit` skips regex scanning for DOM strings longer than `500` characters after checking `exactDict`.
+2. **Antigravity ContextViewer** (`https://github.com/elviscjn-cjn/antigravity-context-viewer`, `v0.8.5`) + [`patches/context-viewer.patch`](patches/context-viewer.patch)
+   - Pinned verified base commit: `868b25b46e2ac773daea2623f9e09e769e1384c1`.
+   - Retains the titlebar context meter, Model Quota Ring (`#badge-quota` + `#panel-quota`), Speed Comparison (`#tab-ctx-speed`), Session Overview (`#tab-ctx-session`), Token History heatmaps, and `v3.3.4` runtime Chinese localization (`chinese` module with pure-CDP `简体中文`/`English` and brand title toggle).
+   - Removes unwanted binary-patching/bloat UI (`#tab-ctx-models`, `#pane-ctx-models`, `#ctx-compact-card`, `#enhance-preset-card`, `#enhance-prompt-card`, `#proxy-notun-drawer`, `#btn-toggle-colors`, `#btn-panel-palette`), fixes upstream orphan wrapper tags around removed drawers, disables upstream startup auto-update prompts (`autoCheckUpdate = false`), and caps both `#panel` and `#panel-quota` at `max-height: min(580px, calc(100vh - 96px))`.
+   - Routes renderer backend requests (including `/quota`, `/scan`, `/token-history`, `/modules-status`, `/toggle-module`, and `/open-external`) through `window.__AGContextMeterLive` (`http://127.0.0.1:<livePort>`).
+   - Keeps conservative anti-lag protections:
+     - `meter-renderer.js` (`src/renderer/main.js` rebuilt via `build-renderer.js`): `hostDomObserver` checks `observedTitlebar` first; `tick()` staggers `/scan` by `900ms` on live route switches and deduplicates `/token-history` within `5s`.
+     - `i18n/i18n-runtime.js`: pairs upstream `6ms` `requestAnimationFrame` DOM batching with skipping full regex scans in `translateSingleUnit` after `exactDict` lookup for strings `> 500` characters.
 
 3. **Pure CDP + Dynamic Loopback Bridge Daemon** ([`assets/antigravity-patch-guardian.mjs`](assets/antigravity-patch-guardian.mjs))
    - Deployed to `~/.gemini/antigravity/scripts/antigravity-patch-guardian.mjs`.
    - Keeps official `app.asar` untouched (`process.noAsar = true`), automatically restoring a clean `app-*-base.asar` backup if an older ASAR patch marker is present.
+   - Merges safe filtered entries from Chuanban `v5.3.0`'s `theme-patch/core/i18n.json` as fallback behind ContextViewer `zh-CN.json` (and injects `window.__AGY_I18N_CONFIG__`) without turning on a second DOM `MutationObserver`.
    - Re-injects across page reloads, `language_server` port changes, new windows, client restarts, and Antigravity updates via `Page.addScriptToEvaluateOnNewDocument`, navigation events, and a `15s` lightweight check.
-   - Registers OS logon autostart outside short-lived agent Job Objects (`AntigravityPatchGuardian` Scheduled Task on Windows, `LaunchAgent` on macOS, `systemd --user` on Linux).
+   - On Windows, `setup.mjs` registers and starts BOTH `AntigravityThemeDaemon` and `AntigravityPatchGuardian` via `Register-ScheduledTask` + `Start-ScheduledTask` so both daemons run outside short-lived agent Win32 Job Objects (using `LaunchAgent` on macOS and `systemd --user` on Linux).
 
 ## Prerequisites
 
@@ -56,7 +57,7 @@ Optional flags:
 | `--context-viewer-dir <dir>` | Custom path for `antigravity-context-viewer` (default: `repo-path.txt`, existing `D:\antigravity-context-viewer` on Windows, or `~/.gemini/antigravity/antigravity-context-viewer`) |
 | `--theme-repo-dir <dir>` | Custom path for `chuanban-antigravity-theme-patch` (default: `~/.gemini/antigravity/chuanban-theme-repo`) |
 | `--fonts-from <dir>` | Folder containing Chuanban fonts to pass to `install-fonts --from` |
-| `--latest` | Apply patch against upstream `HEAD` instead of pinned commit `a204823` |
+| `--latest` | Apply patch against upstream `HEAD` instead of pinned commit `868b25b` |
 | `--skip-tests` | Skip `node --test` after patching `antigravity-context-viewer` |
 | `--skip-verify` | Skip running `verify.mjs` after setup |
 
@@ -73,10 +74,10 @@ node scripts/verify.mjs --skip-cdp
 Passing output fields in `verify.mjs`:
 - `ok: true`
 - `cleanOfficialAsar !== false` (`true` when `app.asar` contains no `__AGContextMeter` marker)
-- `themeConfigAdapted: true` and `themeCustomJsExists: true`
+- `themeConfigAdapted: true` (`i18n: false`, `metrics: false`, `coldBootHealer !== false`, `zoomShortcuts !== false`) and `themeCustomJsExists: true`
 - `modulesState.chinese.enabled === true` and `modulesState.proxy.enabled === false`
 - Non-empty `daemons.themeDaemonPids` and `daemons.patchGuardianPids`
-- When CDP window is open: `chuanbanVersion` present, `chuanbanI18nObserver === false`, `contextMeterMounted === true`, `i18nBooted === true`, `bridgeModulesOk === true`, `openZ === "2147483500"`, `closedZ === "20"`, and all `deletedAbsent` flags `true`.
+- When CDP window is open: `chuanbanVersion` present, `chuanbanI18nObserver === false`, `contextMeterMounted === true`, `quotaMounted === true`, `i18nBooted === true`, `bridgeModulesOk === true`, `bridgeQuotaOk === true`, `openZ === "2147483500"`, `closedZ === "20"`, `quotaOpenZ === "2147483500"`, `quotaClosedZ === "20"`, and all `deletedAbsent` flags `true`.
 
 ## Troubleshooting & Rollback
 

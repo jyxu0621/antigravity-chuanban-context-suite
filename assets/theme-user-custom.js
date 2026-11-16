@@ -29,6 +29,7 @@
   const HIDDEN_POPUP_IDS = [
     'panel',
     'panel-tokens',
+    'panel-quota',
     'overflow-menu',
     'color-picker-popover',
     'cli-launch-toast'
@@ -44,6 +45,7 @@
   let disposed = false;
   let boundMeter = null;
   let shadowObserver = null;
+  let hostParentObserver = null;
   let attachTimer = null;
   let reconnectTimer = null;
   let elevated = false;
@@ -215,6 +217,12 @@
   }
 
   function detachMeter() {
+    if (hostParentObserver) {
+      try {
+        hostParentObserver.disconnect();
+      } catch {}
+      hostParentObserver = null;
+    }
     if (shadowObserver) {
       try {
         shadowObserver.disconnect();
@@ -229,10 +237,30 @@
     boundMeter = null;
   }
 
+  function observeHostParent(meter) {
+    if (hostParentObserver) {
+      try {
+        hostParentObserver.disconnect();
+      } catch {}
+      hostParentObserver = null;
+    }
+    const parent = meter?.parentElement;
+    if (!parent) return;
+    const pObs = new MutationObserver(() => {
+      if (disposed) return;
+      if (!boundMeter || !boundMeter.isConnected || document.getElementById(METER_ID) !== boundMeter) {
+        ensureBound();
+      }
+    });
+    pObs.observe(parent, { childList: true });
+    hostParentObserver = pObs;
+  }
+
   function bindMeter(meter) {
     if (disposed || !meter || !meter.shadowRoot || meter === boundMeter) return false;
     detachMeter();
     boundMeter = meter;
+    observeHostParent(meter);
     const obs = new MutationObserver(() => {
       syncPriority();
     });
@@ -264,15 +292,17 @@
 
   function ensureBound() {
     if (disposed) return;
-    if (boundMeter && boundMeter.isConnected && boundMeter.shadowRoot) return;
-    const meter = document.getElementById(METER_ID);
-    if (!bindMeter(meter)) {
+    const liveMeter = document.getElementById(METER_ID);
+    if (boundMeter && boundMeter.isConnected && boundMeter.shadowRoot && (!liveMeter || liveMeter === boundMeter)) {
+      return;
+    }
+    if (!bindMeter(liveMeter)) {
       if (boundMeter && !boundMeter.isConnected) detachMeter();
       scheduleBindAttempt(250);
     }
   }
 
-  function onDocPointerDown(ev) {
+  function onDocInteraction(ev) {
     if (disposed) return;
     const target = ev?.target;
     if (target && target.id === METER_ID) {
@@ -292,7 +322,8 @@
       clearInterval(reconnectTimer);
       reconnectTimer = null;
     }
-    document.removeEventListener('pointerdown', onDocPointerDown, true);
+    document.removeEventListener('pointerdown', onDocInteraction, true);
+    document.removeEventListener('click', onDocInteraction, true);
     detachMeter();
     if (window.__agMeterPriorityCleanup === cleanup) {
       delete window.__agMeterPriorityCleanup;
@@ -306,7 +337,8 @@
     boot.onCleanup(cleanup);
   }
 
-  document.addEventListener('pointerdown', onDocPointerDown, true);
+  document.addEventListener('pointerdown', onDocInteraction, true);
+  document.addEventListener('click', onDocInteraction, true);
   ensureBound();
   reconnectTimer = setInterval(() => {
     if (!boundMeter || !boundMeter.isConnected) ensureBound();

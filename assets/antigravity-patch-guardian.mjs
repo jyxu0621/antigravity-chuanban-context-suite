@@ -74,11 +74,21 @@ const MAX_LOG_BYTES = 512 * 1024;
 const RUN_ONCE = process.argv.includes('--once');
 
 const { getStateDir } = require(path.join(REPO_DIR, 'asar-engine.js'));
-const { loadModulesConfig, saveModulesConfig } = require(path.join(REPO_DIR, 'modules-config.js'));
+const modulesCfgApi = require(path.join(REPO_DIR, 'modules-config.js'));
+const { loadModulesConfig, saveModulesConfig } = modulesCfgApi;
+const normalizeBrandTitleFn =
+  typeof modulesCfgApi.normalizeBrandTitle === 'function'
+    ? modulesCfgApi.normalizeBrandTitle
+    : (v) => (v === 'hidden' || v === 'translated' ? v : 'english');
+const normalizeClientLangFn =
+  typeof modulesCfgApi.normalizeClientLanguage === 'function'
+    ? modulesCfgApi.normalizeClientLanguage
+    : (v, fallbackOn = true) => (v === 'en' ? 'en' : v === 'zh-CN' ? 'zh-CN' : fallbackOn ? 'zh-CN' : 'en');
 const { isValidExternalUrl } = require(path.join(REPO_DIR, 'meter-core.js'));
 const {
   collect,
   collectTokenHistoryAsync,
+  fetchQuotaSnapshotFromHost,
   recordModelCalls,
   getPluginSettings,
   savePluginSettings,
@@ -347,6 +357,7 @@ function readJsonBody(req) {
 const ALLOWED_BRIDGE_ROUTES = new Set([
   '/scan',
   '/token-history',
+  '/quota',
   '/record-calls',
   '/get-settings',
   '/save-settings',
@@ -439,8 +450,21 @@ function startLiveBridgeServer() {
           return;
         }
 
+        if (req.url === '/quota') {
+          const resData =
+            typeof fetchQuotaSnapshotFromHost === 'function'
+              ? await fetchQuotaSnapshotFromHost({ force: request.force === true })
+              : { available: false, error: 'quota_unsupported' };
+          const { _raw, ...safeData } = resData || {};
+          res.end(JSON.stringify({ ok: true, data: safeData }));
+          return;
+        }
+
         if (req.url === '/modules-status') {
           const cfg = loadModulesConfig();
+          const chCfg = cfg.modules?.chinese || {};
+          const wantZhNow = Boolean(chCfg.enabled && String(chCfg.language || 'zh-CN').toLowerCase() !== 'en');
+          const bootZhNow = bootZhState ? Boolean(bootZhState.enabled) : wantZhNow;
           res.end(
             JSON.stringify({
               ok: true,
@@ -453,7 +477,18 @@ function startLiveBridgeServer() {
                 chineseReady: true,
                 proxy: false,
                 proxyReady: false
-              }
+              },
+              runtime: {
+                injectedAtStartup: false,
+                proxyActive: false,
+                proxyNeedsRestart: false,
+                chineseActive: bootZhNow,
+                chineseBootLanguage: bootZhState?.language || (bootZhNow ? 'zh-CN' : 'en'),
+                chineseNeedsRestart: !wantZhNow && bootZhNow
+              },
+              configCorrupted: Boolean(cfg.__configCorrupted),
+              configError: cfg.__configError || null,
+              corruptedConfigPath: cfg.__corruptedConfigPath || null
             })
           );
           return;
@@ -466,21 +501,43 @@ function startLiveBridgeServer() {
             res.end(JSON.stringify({ ok: false, error: `当前精简模式仅支持切换 chinese 模块: ${name}` }));
             return;
           }
+          const extra = request?.opts || {};
           const targetEnable = Boolean(request.enable);
-          cfg.modules.chinese.enabled = targetEnable;
+          const nextLang = normalizeClientLangFn(extra.language, targetEnable);
+          cfg.modules.chinese = cfg.modules.chinese || {};
+          cfg.modules.chinese.language = nextLang;
+          cfg.modules.chinese.enabled = nextLang === 'zh-CN';
+          if (extra.brandTitle !== undefined) {
+            cfg.modules.chinese.brandTitle = normalizeBrandTitleFn(extra.brandTitle);
+          }
+          cfg.modules.chinese.lastUpdated = new Date().toISOString();
+          cfg.modules.proxy = cfg.modules.proxy || {};
           cfg.modules.proxy.enabled = false;
           saveModulesConfig(cfg);
           setTimeout(() => { void sync(); }, 50);
+
+          const wantZhNow = Boolean(cfg.modules.chinese.enabled);
+          const bootZhNow = bootZhState ? Boolean(bootZhState.enabled) : wantZhNow;
+          const restartRequired = !wantZhNow && bootZhNow;
           res.end(
             JSON.stringify({
               ok: true,
               mode: 'cdp-daemon',
               status: 'config_toggled',
               data: cfg,
-              restartRequired: !targetEnable,
-              message: targetEnable
-                ? '汉化已开启，后台 CDP 守护将在数秒内热注入生效'
-                : '汉化已关闭，重载或重启窗口后恢复官方英文'
+              disk: { meter: true, meterReady: true, chinese: true, chineseReady: true, proxy: false, proxyReady: false },
+              runtime: {
+                injectedAtStartup: false,
+                proxyActive: false,
+                proxyNeedsRestart: false,
+                chineseActive: bootZhNow,
+                chineseBootLanguage: bootZhState?.language || (bootZhNow ? 'zh-CN' : 'en'),
+                chineseNeedsRestart: restartRequired
+              },
+              restartRequired,
+              message: wantZhNow
+                ? '汉化与品牌设置已更新，后台 CDP 守护将在数秒内热同步生效'
+                : '汉化已关闭，重载窗口或重启 Antigravity 后恢复官方英文'
             })
           );
           return;
@@ -521,9 +578,44 @@ const WATCHED_FILES = {
   meterRenderer: path.join(REPO_DIR, 'meter-renderer.js'),
   zhDict: path.join(REPO_DIR, 'i18n', 'zh-CN.json'),
   zhRuntime: path.join(REPO_DIR, 'i18n', 'i18n-runtime.js'),
+  themeI18n: path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'core', 'i18n.json'),
   modulesCfg: path.join(STATE_DIR, 'modules.json')
 };
 
+const SAFE_SHORT_THEME_KEYS = new Set([
+  'Swarm', 'Voice', 'Font', 'Remote', 'Sidebar', 'Toolbar', 'Usage', 'Quota',
+  'Channels', 'Members', 'Graph', 'Board', 'Filters', 'Themes', 'Shortcuts',
+  'Marketplace', 'Skills', 'Plugins', 'Browser', 'Downloads', 'Thumbnails',
+  'Connectors', 'Microphone', 'Automations', 'Subagents', 'Worktrees'
+]);
+
+function buildMergedZhDictRaw() {
+  const viewerRaw = readTextSafe(WATCHED_FILES.zhDict, '{}');
+  const themeRaw = readTextSafe(WATCHED_FILES.themeI18n, '');
+  if (!themeRaw) return viewerRaw;
+  try {
+    const baseDict = JSON.parse(viewerRaw);
+    const themeDict = JSON.parse(themeRaw);
+    const baseExact = baseDict?.exact && typeof baseDict.exact === 'object' ? baseDict.exact : {};
+    const mergedExact = {};
+    for (const [k, v] of Object.entries(themeDict || {})) {
+      if (!k || typeof v !== 'string') continue;
+      if (k === 'Antigravity' || k === 'Google Antigravity') continue;
+      if (Object.prototype.hasOwnProperty.call(baseExact, k)) continue;
+      if (/\s/.test(k) || k.length >= 9 || SAFE_SHORT_THEME_KEYS.has(k)) {
+        mergedExact[k] = v;
+      }
+    }
+    return JSON.stringify({
+      ...baseDict,
+      exact: { ...mergedExact, ...baseExact }
+    });
+  } catch {
+    return viewerRaw;
+  }
+}
+
+let bootZhState = null;
 let cachedFilesSig = '';
 let cachedBundleSig = '';
 let cachedInjectScript = '';
@@ -554,12 +646,20 @@ function rebuildBundleIfNeeded() {
     cfg = { modules: { meter: { enabled: true }, chinese: { enabled: true }, proxy: { enabled: false } } };
   }
 
+  const chCfg = cfg?.modules?.chinese || {};
+  const zhLanguage = normalizeClientLangFn(chCfg.language, chCfg.enabled !== false);
+  const zhBrandTitle = normalizeBrandTitleFn(chCfg.brandTitle);
   const wantMeter = cfg?.modules?.meter?.enabled !== false;
-  const wantZh = cfg?.modules?.chinese?.enabled !== false;
+  const wantZh = chCfg.enabled !== false && zhLanguage !== 'en';
+  if (!bootZhState) {
+    bootZhState = { enabled: wantZh, language: wantZh ? zhLanguage : 'en' };
+  } else if (wantZh && !bootZhState.enabled) {
+    bootZhState = { enabled: true, language: zhLanguage };
+  }
 
   const meterCoreCode = wantMeter ? readTextSafe(WATCHED_FILES.meterCore, '') : '';
   const meterRendererCode = wantMeter ? readTextSafe(WATCHED_FILES.meterRenderer, '') : '';
-  const zhDictRaw = wantZh ? readTextSafe(WATCHED_FILES.zhDict, '{}') : '{}';
+  const zhDictRaw = wantZh ? buildMergedZhDictRaw() : '{}';
   const zhRuntimeCode = wantZh ? readTextSafe(WATCHED_FILES.zhRuntime, '') : '';
 
   const buildHash = crypto
@@ -617,8 +717,15 @@ ${meterRendererCode}
     }`
     : '';
 
+  const zhConfigObj = {
+    enabled: wantZh,
+    language: wantZh ? zhLanguage : 'en',
+    brandTitle: zhBrandTitle
+  };
+
   const zhBootBlock = cachedWantZh
     ? `
+    window.__AGY_I18N_CONFIG__ = ${JSON.stringify(zhConfigObj)};
     if (!window.__AGY_I18N_BOOTED__) {
       try {
         window.__AGY_I18N_BOOTED__ = true;
@@ -631,7 +738,7 @@ ${zhRuntimeCode}
         console.warn('[AGY-i18n:CDP] Init warning:', zhErr);
       }
     }`
-    : '';
+    : `window.__AGY_I18N_CONFIG__ = ${JSON.stringify(zhConfigObj)};`;
 
   cachedInjectScript = `(function(){
   try {

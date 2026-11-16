@@ -21,7 +21,16 @@ const SKILL_ROOT = path.resolve(__dirname, '..');
 
 const UPSTREAM_THEME_REPO = 'https://github.com/Anarcadia/chuanban-antigravity-theme-patch.git';
 const UPSTREAM_VIEWER_REPO = 'https://github.com/elviscjn-cjn/antigravity-context-viewer.git';
-const VERIFIED_VIEWER_COMMIT = 'a204823f597e1aee482f35574798ecbec61874c9';
+const VERIFIED_VIEWER_COMMIT = '868b25b46e2ac773daea2623f9e09e769e1384c1';
+const SUITE_PATCHED_VIEWER_FILES = new Set([
+  'i18n/i18n-runtime.js',
+  'src/i18n/i18n-runtime.js',
+  'meter-renderer.js',
+  'meter-renderer.test.js',
+  'src/renderer/template.html',
+  'src/renderer/styles.css',
+  'src/renderer/main.js'
+]);
 
 function getArg(flag, fallback = null) {
   const idx = process.argv.indexOf(flag);
@@ -113,10 +122,32 @@ function ensureViewerRepoAndPatch(viewerDir, stateDir) {
       const headRes = spawnSync('git', ['-C', viewerDir, 'rev-parse', 'HEAD'], { encoding: 'utf8', windowsHide: true });
       if (String(headRes.stdout || '').trim() !== VERIFIED_VIEWER_COMMIT) {
         const dirty = spawnSync('git', ['-C', viewerDir, 'status', '--porcelain'], { encoding: 'utf8', windowsHide: true });
-        if (String(dirty.stdout || '').trim()) {
+        const dirtyEntries = String(dirty.stdout || '')
+          .split(/\r?\n/)
+          .filter((line) => line.trim().length > 0)
+          .map((line) => ({
+            status: line.slice(0, 2),
+            rel: line.slice(3).trim().replace(/^"|"$/g, '').replace(/\\/g, '/')
+          }));
+        const trackedDirty = dirtyEntries.filter((entry) => entry.status !== '??');
+        const unexpected = trackedDirty.filter((entry) => !SUITE_PATCHED_VIEWER_FILES.has(entry.rel));
+        if (unexpected.length > 0) {
           throw new Error(
-            `Repository ${viewerDir} has local uncommitted changes and is not on pinned commit ${VERIFIED_VIEWER_COMMIT}. Clean it or run with --latest.`
+            `Repository ${viewerDir} has unexpected local uncommitted changes (${unexpected.map((e) => e.rel).join(', ')}) and is not on pinned commit ${VERIFIED_VIEWER_COMMIT}. Clean it or run with --latest.`
           );
+        }
+        if (trackedDirty.length > 0) {
+          const upgradeBackupDir = path.join(stateDir, 'backups', 'skill-setup', `viewer-pre-upgrade-${Date.now()}`);
+          console.log(`      Backing up ${trackedDirty.length} suite-patched file(s) before upgrading to ${VERIFIED_VIEWER_COMMIT.slice(0, 8)}...`);
+          for (const entry of trackedDirty) {
+            const abs = path.join(viewerDir, entry.rel);
+            if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+              const dst = path.join(upgradeBackupDir, entry.rel);
+              fs.mkdirSync(path.dirname(dst), { recursive: true });
+              fs.copyFileSync(abs, dst);
+            }
+          }
+          runChecked('git', ['-C', viewerDir, 'checkout', '--', ...trackedDirty.map((entry) => entry.rel)]);
         }
         runChecked('git', ['-C', viewerDir, 'fetch', 'origin']);
         runChecked('git', ['-C', viewerDir, 'checkout', VERIFIED_VIEWER_COMMIT]);
@@ -138,15 +169,16 @@ function ensureViewerRepoAndPatch(viewerDir, stateDir) {
   }
 
   if (!SKIP_TESTS) {
-    console.log('      Running unit tests (meter-core, meter-renderer, meter-integration)...');
+    const testFiles = [
+      'meter-core.test.js',
+      'meter-renderer.test.js',
+      'meter-integration.test.js',
+      ...(fs.existsSync(path.join(viewerDir, 'meter-v083-fixes.test.js')) ? ['meter-v083-fixes.test.js'] : [])
+    ];
+    console.log(`      Running unit tests (${testFiles.map((f) => f.replace(/\.test\.js$/, '')).join(', ')})...`);
     runChecked(
       process.execPath,
-      [
-        '--test',
-        path.join(viewerDir, 'meter-core.test.js'),
-        path.join(viewerDir, 'meter-renderer.test.js'),
-        path.join(viewerDir, 'meter-integration.test.js')
-      ],
+      ['--test', ...testFiles.map((f) => path.join(viewerDir, f))],
       { cwd: viewerDir }
     );
   }
@@ -250,6 +282,43 @@ function installChuanbanTheme(themeRepoDir, backupDir) {
       windowsHide: true
     });
   }
+
+  if (process.platform === 'win32') {
+    const themeVbs = path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'AntigravityThemeDaemon.vbs');
+    if (fs.existsSync(themeVbs)) {
+      const taskRes = registerWindowsLogonVbsTask('AntigravityThemeDaemon', themeVbs, 'AntigravityThemeDaemon');
+      if (!taskRes.ok) {
+        console.warn(`      [WARN] Could not promote AntigravityThemeDaemon to Scheduled Task: ${taskRes.reason}`);
+      }
+    }
+  }
+}
+
+function registerWindowsLogonVbsTask(taskName, vbsPath, regRunName) {
+  const safeVbs = vbsPath.replace(/'/g, "''");
+  const safeTask = taskName.replace(/'/g, "''");
+  const safeRun = regRunName ? regRunName.replace(/'/g, "''") : '';
+  const cleanupRunPs = safeRun
+    ? `Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name '${safeRun}' -ErrorAction SilentlyContinue`
+    : '';
+  const psRegister = `
+$ErrorActionPreference = 'Stop'
+$vbs = '${safeVbs}'
+$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('//B //NoLogo "' + $vbs + '"')
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+Register-ScheduledTask -TaskName '${safeTask}' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
+${cleanupRunPs}
+Start-ScheduledTask -TaskName '${safeTask}'
+`;
+  const res = spawnSync('powershell.exe', ['-NoProfile', '-Command', psRegister], {
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  return {
+    ok: res.status === 0,
+    reason: String(res.stderr || res.stdout || `exit ${res.status}`).trim()
+  };
 }
 
 function stopExistingGuardian(stateDir) {
@@ -283,7 +352,7 @@ function stopExistingGuardian(stateDir) {
 }
 
 function deployGuardianAndAutostart(stateDir, backupDir) {
-  console.log('[4/5] Deploying ContextMeter + v3.3.4 i18n CDP daemon & OS autostart...');
+  console.log('[4/5] Deploying ContextMeter v0.8.5 + Chuanban v5.3.0 i18n CDP daemon & OS autostart...');
   const scriptsDir = path.join(os.homedir(), '.gemini', 'antigravity', 'scripts');
   fs.mkdirSync(scriptsDir, { recursive: true });
 
@@ -303,21 +372,8 @@ function deployGuardianAndAutostart(stateDir, backupDir) {
     backupIfDifferent(vbsPath, vbsBuf, backupDir);
     fs.writeFileSync(vbsPath, vbsBody, 'utf16le');
 
-    const psRegister = `
-$ErrorActionPreference = 'Stop'
-$vbs = '${vbsPath.replace(/'/g, "''")}'
-$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('//B //NoLogo "' + $vbs + '"')
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName 'AntigravityPatchGuardian' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
-reg delete 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' /v 'AntigravityPatchGuardian' /f 2>&1 | Out-Null
-Start-ScheduledTask -TaskName 'AntigravityPatchGuardian'
-`;
-    const taskRes = spawnSync('powershell.exe', ['-NoProfile', '-Command', psRegister], {
-      encoding: 'utf8',
-      windowsHide: true
-    });
-    if (taskRes.status !== 0) {
+    const taskRes = registerWindowsLogonVbsTask('AntigravityPatchGuardian', vbsPath, 'AntigravityPatchGuardian');
+    if (!taskRes.ok) {
       spawnSync(
         'reg',
         [

@@ -184,60 +184,144 @@ async function inspectLiveCdp() {
       });
 
     try {
-      const state = await evalCdp(`(async () => {
+      const nodeSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const baseState = await evalCdp(`(async () => {
         const host = document.getElementById('ag-context-meter');
         const sr = host?.shadowRoot || null;
         const badge = sr?.getElementById('badge');
         const panel = sr?.getElementById('panel');
         const closeBtn = sr?.getElementById('close');
+        const quotaBadge = sr?.getElementById('badge-quota');
+        const panelQuota = sr?.getElementById('panel-quota');
+        const closeQuotaBtn = sr?.getElementById('close-quota');
         let bridgeModules = null;
+        let bridgeQuota = null;
         const live = window.__AGContextMeterLive || null;
         if (live?.port && live?.token) {
+          const reqOpts = (body) => ({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
+            body: body || '{}'
+          });
           try {
-            const r = await fetch('http://127.0.0.1:' + live.port + '/modules-status', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
-              body: '{}'
-            });
+            const r = await fetch('http://127.0.0.1:' + live.port + '/modules-status', reqOpts('{}'));
             bridgeModules = await r.json();
           } catch (e) { bridgeModules = { error: String(e) }; }
+          try {
+            const q = await fetch('http://127.0.0.1:' + live.port + '/quota', reqOpts('{}'));
+            bridgeQuota = await q.json();
+          } catch (e) { bridgeQuota = { error: String(e) }; }
         }
-        let openZ = null, closedZ = null, rectH = null, maxH = null;
-        if (host && badge && panel && closeBtn) {
-          if (!panel.hidden) closeBtn.click();
-          await new Promise(r => setTimeout(r, 150));
-          badge.click();
-          await new Promise(r => setTimeout(r, 300));
-          openZ = getComputedStyle(host).zIndex;
-          rectH = Math.round(panel.getBoundingClientRect().height);
-          maxH = getComputedStyle(panel).maxHeight;
-          closeBtn.click();
-          await new Promise(r => setTimeout(r, 200));
-          closedZ = getComputedStyle(host).zIndex;
-        }
+        if (panel && !panel.hidden && closeBtn) closeBtn.click();
+        if (panelQuota && !panelQuota.hidden && closeQuotaBtn) closeQuotaBtn.click();
+        await Promise.resolve();
+        await Promise.resolve();
         return {
           targetId: ${JSON.stringify(workbench.id)},
           origin: location.origin,
           chuanbanVersion: window.__ag_patch_version || null,
           chuanbanI18nObserver: Boolean(window.__ag_i18n_observer),
           contextMeterMounted: Boolean(host && sr),
+          quotaMounted: Boolean(quotaBadge && panelQuota),
+          speedTabMounted: Boolean(sr?.getElementById('tab-ctx-speed')),
+          brandLangCardMounted: Boolean(sr?.getElementById('client-brand-lang-card')),
           buildSig: window.__AGContextMeterBuildSig || null,
           loadedSig: window.__AGContextMeterLoadedSig || null,
           i18nBooted: Boolean(window.__AGY_I18N_BOOTED__),
           livePort: live?.port || null,
           bridgeModulesOk: Boolean(bridgeModules?.ok && bridgeModules?.mode === 'cdp-daemon'),
+          bridgeQuotaOk: Boolean(bridgeQuota && bridgeQuota.ok === true),
           chineseBadge: sr?.getElementById('chinese-badge')?.textContent?.trim() || null,
           deletedAbsent: {
-            no256k: !sr?.getElementById('unlock-256k-drawer'),
+            noModelsTab: !sr?.getElementById('tab-ctx-models'),
+            no256k: !sr?.getElementById('unlock-256k-drawer') && !sr?.getElementById('ctx-compact-card'),
+            noEnhance: !sr?.getElementById('enhance-preset-card') && !sr?.getElementById('enhance-prompt-card'),
             noProxy: !sr?.getElementById('proxy-notun-drawer'),
-            noColorDrawer: !sr?.getElementById('btn-toggle-colors')
+            noColorDrawer: !sr?.getElementById('btn-toggle-colors') && !sr?.getElementById('btn-panel-palette')
           },
-          openZ,
-          closedZ,
-          panelHeight: rectH,
-          panelMaxHeight: maxH
+          hasPanelButtons: Boolean(host && badge && panel && closeBtn),
+          hasQuotaButtons: Boolean(host && quotaBadge && panelQuota && closeQuotaBtn)
         };
       })()`);
+
+      let openZ = null, closedZ = null, rectH = null, maxH = null;
+      if (baseState?.hasPanelButtons) {
+        await nodeSleep(60);
+        const opened = await evalCdp(`(async () => {
+          const host = document.getElementById('ag-context-meter');
+          const sr = host?.shadowRoot;
+          const badge = sr?.getElementById('badge');
+          const panel = sr?.getElementById('panel');
+          if (!panel || !badge) return null;
+          badge.click();
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+          return {
+            openZ: getComputedStyle(host).zIndex,
+            rectH: Math.round(panel.getBoundingClientRect().height),
+            maxH: getComputedStyle(panel).maxHeight
+          };
+        })()`);
+        openZ = opened?.openZ ?? null;
+        rectH = opened?.rectH ?? null;
+        maxH = opened?.maxH ?? null;
+        await nodeSleep(60);
+        closedZ = await evalCdp(`(async () => {
+          const host = document.getElementById('ag-context-meter');
+          const closeBtn = host?.shadowRoot?.getElementById('close');
+          closeBtn?.click();
+          await Promise.resolve();
+          await Promise.resolve();
+          return getComputedStyle(host).zIndex;
+        })()`);
+      }
+
+      let quotaOpenZ = null, quotaClosedZ = null, quotaRectH = null, quotaMaxH = null;
+      if (baseState?.hasQuotaButtons) {
+        await nodeSleep(60);
+        const qOpened = await evalCdp(`(async () => {
+          const host = document.getElementById('ag-context-meter');
+          const sr = host?.shadowRoot;
+          const quotaBadge = sr?.getElementById('badge-quota');
+          const panelQuota = sr?.getElementById('panel-quota');
+          if (!panelQuota || !quotaBadge) return null;
+          quotaBadge.click();
+          await Promise.resolve();
+          await Promise.resolve();
+          await Promise.resolve();
+          return {
+            quotaOpenZ: getComputedStyle(host).zIndex,
+            quotaRectH: Math.round(panelQuota.getBoundingClientRect().height),
+            quotaMaxH: getComputedStyle(panelQuota).maxHeight
+          };
+        })()`);
+        quotaOpenZ = qOpened?.quotaOpenZ ?? null;
+        quotaRectH = qOpened?.quotaRectH ?? null;
+        quotaMaxH = qOpened?.quotaMaxH ?? null;
+        await nodeSleep(60);
+        quotaClosedZ = await evalCdp(`(async () => {
+          const host = document.getElementById('ag-context-meter');
+          const closeQuotaBtn = host?.shadowRoot?.getElementById('close-quota');
+          closeQuotaBtn?.click();
+          await Promise.resolve();
+          await Promise.resolve();
+          return getComputedStyle(host).zIndex;
+        })()`);
+      }
+
+      const { hasPanelButtons, hasQuotaButtons, ...rest } = baseState || {};
+      const state = {
+        ...rest,
+        openZ,
+        closedZ,
+        panelHeight: rectH,
+        panelMaxHeight: maxH,
+        quotaOpenZ,
+        quotaClosedZ,
+        quotaPanelHeight: quotaRectH,
+        quotaPanelMaxHeight: quotaMaxH
+      };
       return { found: true, cdpPort: port, state };
     } finally {
       try { ws.close(); } catch {}
@@ -279,7 +363,13 @@ async function main() {
     Boolean(viewerDir) &&
     cleanAsar !== false &&
     fs.existsSync(guardianScript) &&
-    Boolean(themeCfg && themeCfg.modules?.i18n === false && themeCfg.modules?.metrics === false) &&
+    Boolean(
+      themeCfg &&
+        themeCfg.modules?.i18n === false &&
+        themeCfg.modules?.metrics === false &&
+        themeCfg.modules?.coldBootHealer !== false &&
+        themeCfg.modules?.zoomShortcuts !== false
+    ) &&
     fs.existsSync(themeCustomJs) &&
     Boolean(modulesJson?.modules?.chinese?.enabled === true && modulesJson?.modules?.proxy?.enabled === false) &&
     daemons.themeDaemonPids.length > 0 &&
@@ -292,11 +382,17 @@ async function main() {
       cdp.state?.chuanbanVersion &&
         cdp.state?.chuanbanI18nObserver === false &&
         cdp.state?.contextMeterMounted &&
+        cdp.state?.quotaMounted &&
         cdp.state?.i18nBooted &&
         cdp.state?.bridgeModulesOk &&
+        cdp.state?.bridgeQuotaOk &&
         cdp.state?.openZ === '2147483500' &&
         cdp.state?.closedZ === '20' &&
+        cdp.state?.quotaOpenZ === '2147483500' &&
+        cdp.state?.quotaClosedZ === '20' &&
+        cdp.state?.deletedAbsent?.noModelsTab &&
         cdp.state?.deletedAbsent?.no256k &&
+        cdp.state?.deletedAbsent?.noEnhance &&
         cdp.state?.deletedAbsent?.noProxy &&
         cdp.state?.deletedAbsent?.noColorDrawer
     );
@@ -306,7 +402,13 @@ async function main() {
     viewerDir,
     guardianScriptExists: fs.existsSync(guardianScript),
     cleanOfficialAsar: cleanAsar,
-    themeConfigAdapted: Boolean(themeCfg && themeCfg.modules?.i18n === false && themeCfg.modules?.metrics === false),
+    themeConfigAdapted: Boolean(
+      themeCfg &&
+        themeCfg.modules?.i18n === false &&
+        themeCfg.modules?.metrics === false &&
+        themeCfg.modules?.coldBootHealer !== false &&
+        themeCfg.modules?.zoomShortcuts !== false
+    ),
     themeCustomJsExists: fs.existsSync(themeCustomJs),
     modulesState: modulesJson?.modules || null,
     daemons,
