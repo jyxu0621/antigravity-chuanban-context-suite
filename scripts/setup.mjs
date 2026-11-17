@@ -21,7 +21,7 @@ const SKILL_ROOT = path.resolve(__dirname, '..');
 
 const UPSTREAM_THEME_REPO = 'https://github.com/Anarcadia/chuanban-antigravity-theme-patch.git';
 const UPSTREAM_VIEWER_REPO = 'https://github.com/elviscjn-cjn/antigravity-context-viewer.git';
-const VERIFIED_VIEWER_COMMIT = '868b25b46e2ac773daea2623f9e09e769e1384c1';
+const VERIFIED_VIEWER_COMMIT = '5951a7ceda2e2c63266b2d8033226e33d82b900e';
 const SUITE_PATCHED_VIEWER_FILES = new Set([
   'i18n/i18n-runtime.js',
   'src/i18n/i18n-runtime.js',
@@ -173,7 +173,8 @@ function ensureViewerRepoAndPatch(viewerDir, stateDir) {
       'meter-core.test.js',
       'meter-renderer.test.js',
       'meter-integration.test.js',
-      ...(fs.existsSync(path.join(viewerDir, 'meter-v083-fixes.test.js')) ? ['meter-v083-fixes.test.js'] : [])
+      ...(fs.existsSync(path.join(viewerDir, 'meter-v083-fixes.test.js')) ? ['meter-v083-fixes.test.js'] : []),
+      ...(fs.existsSync(path.join(viewerDir, 'meter-hotload.test.js')) ? ['meter-hotload.test.js'] : [])
     ];
     console.log(`      Running unit tests (${testFiles.map((f) => f.replace(/\.test\.js$/, '')).join(', ')})...`);
     runChecked(
@@ -284,11 +285,23 @@ function installChuanbanTheme(themeRepoDir, backupDir) {
   }
 
   if (process.platform === 'win32') {
-    const themeVbs = path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'AntigravityThemeDaemon.vbs');
-    if (fs.existsSync(themeVbs)) {
-      const taskRes = registerWindowsLogonVbsTask('AntigravityThemeDaemon', themeVbs, 'AntigravityThemeDaemon');
-      if (!taskRes.ok) {
-        console.warn(`      [WARN] Could not promote AntigravityThemeDaemon to Scheduled Task: ${taskRes.reason}`);
+    const existingTask = spawnSync('schtasks', ['/Query', '/TN', 'AntigravityThemeDaemon'], {
+      stdio: 'ignore',
+      windowsHide: true
+    });
+    if (existingTask.status === 0) {
+      // Preserve Chuanban v5.4+ XML ME-SDDL task definition and re-trigger outside Job Object
+      spawnSync('schtasks', ['/Run', '/TN', 'AntigravityThemeDaemon'], {
+        stdio: 'ignore',
+        windowsHide: true
+      });
+    } else {
+      const themeVbs = path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'AntigravityThemeDaemon.vbs');
+      if (fs.existsSync(themeVbs)) {
+        const taskRes = registerWindowsLogonVbsTask('AntigravityThemeDaemon', themeVbs, 'AntigravityThemeDaemon');
+        if (!taskRes.ok) {
+          console.warn(`      [WARN] Could not promote AntigravityThemeDaemon to Scheduled Task: ${taskRes.reason}`);
+        }
       }
     }
   }
@@ -352,7 +365,7 @@ function stopExistingGuardian(stateDir) {
 }
 
 function deployGuardianAndAutostart(stateDir, backupDir) {
-  console.log('[4/5] Deploying ContextMeter v0.8.5 + Chuanban v5.3.0 i18n CDP daemon & OS autostart...');
+  console.log('[4/5] Deploying ContextMeter v0.8.7 + Chuanban v5.4.2 i18n CDP daemon & OS autostart...');
   const scriptsDir = path.join(os.homedir(), '.gemini', 'antigravity', 'scripts');
   fs.mkdirSync(scriptsDir, { recursive: true });
 

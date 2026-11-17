@@ -2,6 +2,7 @@
   "enabled": true,
   "channel": "auto",
   "preset": "high-contrast",
+  "darkPreset": "onyx",
   "contextLimit": 256000,
   "allowedOrigins": [
     "https://127.0.0.1",

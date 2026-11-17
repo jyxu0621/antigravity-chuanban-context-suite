@@ -229,6 +229,8 @@ async function inspectLiveCdp() {
           loadedSig: window.__AGContextMeterLoadedSig || null,
           i18nBooted: Boolean(window.__AGY_I18N_BOOTED__),
           livePort: live?.port || null,
+          liveVersion: live?.version || null,
+          liveCapabilitiesOk: Boolean(live?.capabilities?.quota && live?.capabilities?.modules),
           bridgeModulesOk: Boolean(bridgeModules?.ok && bridgeModules?.mode === 'cdp-daemon'),
           bridgeQuotaOk: Boolean(bridgeQuota && bridgeQuota.ok === true),
           chineseBadge: sr?.getElementById('chinese-badge')?.textContent?.trim() || null,

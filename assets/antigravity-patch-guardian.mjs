@@ -465,10 +465,13 @@ function startLiveBridgeServer() {
           const chCfg = cfg.modules?.chinese || {};
           const wantZhNow = Boolean(chCfg.enabled && String(chCfg.language || 'zh-CN').toLowerCase() !== 'en');
           const bootZhNow = bootZhState ? Boolean(bootZhState.enabled) : wantZhNow;
+          const viewerVer = readViewerVersion();
           res.end(
             JSON.stringify({
               ok: true,
               mode: 'cdp-daemon',
+              collectorVersion: viewerVer,
+              backendVersion: viewerVer,
               data: cfg,
               disk: {
                 meter: true,
@@ -519,11 +522,14 @@ function startLiveBridgeServer() {
           const wantZhNow = Boolean(cfg.modules.chinese.enabled);
           const bootZhNow = bootZhState ? Boolean(bootZhState.enabled) : wantZhNow;
           const restartRequired = !wantZhNow && bootZhNow;
+          const viewerVer = readViewerVersion();
           res.end(
             JSON.stringify({
               ok: true,
               mode: 'cdp-daemon',
               status: 'config_toggled',
+              collectorVersion: viewerVer,
+              backendVersion: viewerVer,
               data: cfg,
               disk: { meter: true, meterReady: true, chinese: true, chineseReady: true, proxy: false, proxyReady: false },
               runtime: {
@@ -574,6 +580,7 @@ function startLiveBridgeServer() {
 // 4. 动态载荷构建与源改动 mtime 热重载（零静态浪费）
 // ============================================================================
 const WATCHED_FILES = {
+  viewerPackage: path.join(REPO_DIR, 'package.json'),
   meterCore: path.join(REPO_DIR, 'meter-core.js'),
   meterRenderer: path.join(REPO_DIR, 'meter-renderer.js'),
   zhDict: path.join(REPO_DIR, 'i18n', 'zh-CN.json'),
@@ -581,6 +588,19 @@ const WATCHED_FILES = {
   themeI18n: path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'core', 'i18n.json'),
   modulesCfg: path.join(STATE_DIR, 'modules.json')
 };
+
+function readViewerVersion() {
+  try {
+    const raw = readTextSafe(WATCHED_FILES.viewerPackage, '');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.version === 'string' && parsed.version.trim()) {
+        return parsed.version.trim();
+      }
+    }
+  } catch {}
+  return '0.8.7';
+}
 
 const SAFE_SHORT_THEME_KEYS = new Set([
   'Swarm', 'Voice', 'Font', 'Remote', 'Sidebar', 'Toolbar', 'Usage', 'Quota',
@@ -622,8 +642,18 @@ let cachedInjectScript = '';
 let cachedWantMeter = true;
 let cachedWantZh = true;
 
+const HOST_FP_CHECK_EXPR = `Boolean(
+  (window.__APP_CONFIG__ && window.__APP_CONFIG__.productName === 'antigravity') ||
+  (window.electronNative && (
+    typeof window.electronNative.setTitleBarOverlay === 'function' ||
+    typeof window.electronNative.getZoomLevel === 'function' ||
+    window.electronNative.wcvBrowser
+  ))
+)`;
+
 function buildCheckExpression() {
   return `(function(){
+    if (!(${HOST_FP_CHECK_EXPR})) return true;
     var sig = ${JSON.stringify(cachedBundleSig)};
     if (window.__AGContextMeterBuildSig !== sig) return false;
     if (window.__AGContextMeterWaitingBody === sig && document.readyState === 'loading') return true;
@@ -740,12 +770,33 @@ ${zhRuntimeCode}
     }`
     : `window.__AGY_I18N_CONFIG__ = ${JSON.stringify(zhConfigObj)};`;
 
+  const liveBridgeMeta = {
+    port: livePort,
+    token: LIVE_SECRET,
+    version: readViewerVersion(),
+    pid: process.pid,
+    capabilities: {
+      quota: true,
+      scan: true,
+      tokenHistory: true,
+      recordCalls: true,
+      settings: true,
+      launchCli: true,
+      modules: true,
+      checkUpdate: false,
+      applyUpdate: false,
+      contextUnlock: false,
+      enhance: false
+    }
+  };
+
   cachedInjectScript = `(function(){
   try {
     if (location.protocol !== 'https:' || (location.hostname !== '127.0.0.1' && location.hostname !== 'localhost')) return;
+    if (!(${HOST_FP_CHECK_EXPR})) return;
     var SIG = ${JSON.stringify(cachedBundleSig)};
     window.__AGContextMeterBuildSig = SIG;
-    window.__AGContextMeterLive = ${JSON.stringify({ port: livePort, token: LIVE_SECRET })};
+    window.__AGContextMeterLive = ${JSON.stringify(liveBridgeMeta)};
     ${zhBootBlock}
     ${meterBootBlock}
   } catch (e) {
