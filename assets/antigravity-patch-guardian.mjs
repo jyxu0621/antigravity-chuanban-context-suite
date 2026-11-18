@@ -1064,6 +1064,18 @@ async function sync() {
   }
 }
 
+let daemonReady = false;
+
+process.on('uncaughtException', (err) => {
+  appendLog('ERROR', `Uncaught exception: ${err?.stack || err?.message || String(err)}`);
+  if (!daemonReady) process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  const msg = reason && typeof reason === 'object' && 'stack' in reason ? reason.stack : String(reason);
+  appendLog('ERROR', `Unhandled rejection: ${msg}`);
+});
+
 async function main() {
   if (!fs.existsSync(WATCHED_FILES.meterRenderer)) {
     appendLog('ERROR', `Missing meter-renderer.js at ${WATCHED_FILES.meterRenderer}`);
@@ -1073,6 +1085,7 @@ async function main() {
   await startLiveBridgeServer();
   refreshSnapshotsAsync();
   rebuildBundleIfNeeded();
+  daemonReady = true;
   appendLog(
     'INFO',
     `Antigravity Context CDP Daemon started (pid=${process.pid}, mode=${RUN_ONCE ? 'once' : 'daemon'}, livePort=${livePort}, sig=${cachedBundleSig})`
@@ -1092,4 +1105,7 @@ async function main() {
   }, SYNC_INTERVAL_MS);
 }
 
-void main();
+main().catch((err) => {
+  appendLog('ERROR', `Fatal daemon error: ${err?.stack || err?.message || String(err)}`);
+  process.exit(1);
+});
