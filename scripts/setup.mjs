@@ -309,30 +309,154 @@ function installChuanbanTheme(themeRepoDir, backupDir) {
   }
 }
 
-function registerWindowsLogonVbsTask(taskName, vbsPath, regRunName) {
-  const safeVbs = vbsPath.replace(/'/g, "''");
-  const safeTask = taskName.replace(/'/g, "''");
-  const safeRun = regRunName ? regRunName.replace(/'/g, "''") : '';
-  const cleanupRunPs = safeRun
-    ? `Remove-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name '${safeRun}' -ErrorAction SilentlyContinue`
-    : '';
-  const psRegister = `
-$ErrorActionPreference = 'Stop'
-$vbs = '${safeVbs}'
-$action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument ('//B //NoLogo "' + $vbs + '"')
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User "$env:USERDOMAIN\\$env:USERNAME"
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName '${safeTask}' -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
-${cleanupRunPs}
-Start-ScheduledTask -TaskName '${safeTask}'
-`;
-  const res = spawnSync('powershell.exe', ['-NoProfile', '-Command', psRegister], {
+function sleepSync(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {}
+}
+
+function xmlEsc(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function registerWindowsLogonVbsTask(taskName, vbsPath, regRunName, { repeatInterval = null } = {}) {
+  let userAuthor =
+    (process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\` : '') + (process.env.USERNAME || os.userInfo().username);
+  let userSid = '';
+  try {
+    const whoRes = spawnSync('whoami', ['/user', '/fo', 'csv', '/nh'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 3000
+    });
+    if (whoRes.status === 0) {
+      const m = String(whoRes.stdout || '').trim().match(/^"([^"]+)","(S-1-[^"]+)"/);
+      if (m) {
+        userAuthor = m[1];
+        userSid = m[2];
+      }
+    }
+  } catch {}
+
+  const principalId = userSid || userAuthor;
+  const sddl = `D:(A;;FA;;;BA)(A;;FA;;;SY)(A;;FA;;;IU)${userSid ? `(A;;FA;;;${userSid})` : ''}S:(ML;;NW;;;ME)`;
+  const triggersXml = [
+    '    <LogonTrigger>',
+    '      <Enabled>true</Enabled>',
+    `      <UserId>${xmlEsc(principalId)}</UserId>`,
+    '    </LogonTrigger>'
+  ];
+  if (repeatInterval) {
+    triggersXml.push(
+      '    <TimeTrigger>',
+      '      <Repetition>',
+      `        <Interval>${xmlEsc(repeatInterval)}</Interval>`,
+      '        <StopAtDurationEnd>false</StopAtDurationEnd>',
+      '      </Repetition>',
+      '      <StartBoundary>2025-01-01T00:00:00</StartBoundary>',
+      '      <Enabled>true</Enabled>',
+      '    </TimeTrigger>'
+    );
+  }
+
+  const taskXml = [
+    '\uFEFF<?xml version="1.0" encoding="UTF-16"?>',
+    '<Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">',
+    '  <RegistrationInfo>',
+    `    <Author>${xmlEsc(userAuthor)}</Author>`,
+    `    <URI>\\${xmlEsc(taskName)}</URI>`,
+    `    <SecurityDescriptor>${xmlEsc(sddl)}</SecurityDescriptor>`,
+    '  </RegistrationInfo>',
+    '  <Principals>',
+    '    <Principal id="Author">',
+    `      <UserId>${xmlEsc(principalId)}</UserId>`,
+    '      <LogonType>InteractiveToken</LogonType>',
+    '      <RunLevel>LeastPrivilege</RunLevel>',
+    '    </Principal>',
+    '  </Principals>',
+    '  <Settings>',
+    '    <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>',
+    '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>',
+    '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>',
+    '    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>',
+    '    <IdleSettings>',
+    '      <StopOnIdleEnd>false</StopOnIdleEnd>',
+    '      <RestartOnIdle>false</RestartOnIdle>',
+    '    </IdleSettings>',
+    '    <Enabled>true</Enabled>',
+    '    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>',
+    '  </Settings>',
+    '  <Triggers>',
+    ...triggersXml,
+    '  </Triggers>',
+    '  <Actions Context="Author">',
+    '    <Exec>',
+    '      <Command>wscript.exe</Command>',
+    `      <Arguments>//B //NoLogo &quot;${xmlEsc(vbsPath)}&quot;</Arguments>`,
+    '    </Exec>',
+    '  </Actions>',
+    '</Task>',
+    ''
+  ].join('\r\n');
+
+  const tmpXmlPath = path.join(os.tmpdir(), `ag-suite-task-${taskName}-${process.pid}.xml`);
+  let created = false;
+  let lastReason = '';
+  try {
+    fs.writeFileSync(tmpXmlPath, taskXml, 'utf16le');
+    const createRes = spawnSync('schtasks', ['/Create', '/TN', taskName, '/XML', tmpXmlPath, '/F'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 8000
+    });
+    if (createRes.status === 0) {
+      created = true;
+    } else {
+      lastReason = String(createRes.stderr || createRes.stdout || `schtasks create exit ${createRes.status}`).trim();
+      const queryRes = spawnSync('schtasks', ['/Query', '/TN', taskName, '/XML'], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 4000
+      });
+      if (queryRes.status === 0 && String(queryRes.stdout || '').toLowerCase().includes(path.basename(vbsPath).toLowerCase())) {
+        created = true;
+      }
+    }
+  } catch (e) {
+    lastReason = e?.message || String(e);
+  } finally {
+    try {
+      if (fs.existsSync(tmpXmlPath)) fs.unlinkSync(tmpXmlPath);
+    } catch {}
+  }
+
+  if (!created) {
+    return { ok: false, reason: lastReason || 'schtasks XML registration failed' };
+  }
+
+  if (regRunName) {
+    try {
+      spawnSync(
+        'reg',
+        ['delete', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run', '/v', regRunName, '/f'],
+        { stdio: 'ignore', windowsHide: true }
+      );
+    } catch {}
+  }
+
+  const runRes = spawnSync('schtasks', ['/Run', '/TN', taskName], {
     encoding: 'utf8',
-    windowsHide: true
+    windowsHide: true,
+    timeout: 6000
   });
   return {
-    ok: res.status === 0,
-    reason: String(res.stderr || res.stdout || `exit ${res.status}`).trim()
+    ok: runRes.status === 0,
+    reason: String(runRes.stderr || runRes.stdout || `schtasks run exit ${runRes.status}`).trim()
   };
 }
 
@@ -341,33 +465,75 @@ function stopExistingGuardian(stateDir) {
   try {
     if (!fs.existsSync(pidFile)) return;
     const oldPid = Number.parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-    if (!Number.isInteger(oldPid) || oldPid <= 0 || oldPid === process.pid) return;
+    if (!Number.isInteger(oldPid) || oldPid <= 0 || oldPid === process.pid) {
+      try { fs.unlinkSync(pidFile); } catch {}
+      return;
+    }
+    let alive = true;
+    try {
+      process.kill(oldPid, 0);
+    } catch (err) {
+      if (!err || err.code !== 'EPERM') alive = false;
+    }
+    if (!alive) {
+      try { fs.unlinkSync(pidFile); } catch {}
+      return;
+    }
     if (process.platform === 'win32') {
       const probe = spawnSync(
         'powershell.exe',
-        ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId = ${oldPid}").CommandLine`],
+        ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId = ${oldPid}" -ErrorAction SilentlyContinue).CommandLine`],
         { encoding: 'utf8', windowsHide: true, timeout: 4000 }
       );
-      if (!String(probe.stdout || '').includes('antigravity-patch-guardian')) return;
+      if (!String(probe.stdout || '').includes('antigravity-patch-guardian')) {
+        try { fs.unlinkSync(pidFile); } catch {}
+        return;
+      }
     } else {
       const probe = spawnSync('ps', ['-p', String(oldPid), '-o', 'args='], { encoding: 'utf8', timeout: 3000 });
-      if (!String(probe.stdout || '').includes('antigravity-patch-guardian')) return;
+      if (!String(probe.stdout || '').includes('antigravity-patch-guardian')) {
+        try { fs.unlinkSync(pidFile); } catch {}
+        return;
+      }
     }
     process.kill(oldPid, 'SIGTERM');
-    const deadline = Date.now() + 800;
+    const deadline = Date.now() + 1000;
     while (Date.now() < deadline) {
       try {
         process.kill(oldPid, 0);
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+        sleepSync(80);
       } catch {
         break;
       }
     }
+    try {
+      if (fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').trim() === String(oldPid)) {
+        fs.unlinkSync(pidFile);
+      }
+    } catch {}
   } catch {}
 }
 
+function waitForLiveGuardianPid(stateDir, maxWaitMs = 4500) {
+  const pidFile = path.join(stateDir, 'patch-guardian.pid');
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    try {
+      if (fs.existsSync(pidFile)) {
+        const pid = Number.parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+        if (Number.isInteger(pid) && pid > 0) {
+          process.kill(pid, 0);
+          return pid;
+        }
+      }
+    } catch {}
+    sleepSync(120);
+  }
+  return null;
+}
+
 function deployGuardianAndAutostart(stateDir, backupDir) {
-  console.log('[4/5] Deploying ContextMeter v0.8.8 + Chuanban v5.5.0 (Antigravity 2.33.0+) i18n CDP daemon & OS autostart...');
+  console.log('[4/5] Deploying ContextMeter v0.8.8 + Chuanban v5.5.1 (Antigravity 2.33.0+) i18n CDP daemon & OS autostart...');
   const scriptsDir = path.join(os.homedir(), '.gemini', 'antigravity', 'scripts');
   fs.mkdirSync(scriptsDir, { recursive: true });
 
@@ -381,35 +547,42 @@ function deployGuardianAndAutostart(stateDir, backupDir) {
 
   if (process.platform === 'win32') {
     const vbsPath = path.join(scriptsDir, 'AntigravityPatchGuardian.vbs');
-    const cmd = `""${process.execPath}"" --disable-warning=ExperimentalWarning ""${dstGuardian}""`;
+    const cmd = `""${process.execPath}"" --disable-warning=ExperimentalWarning ""${dstGuardian}"" --ensure`;
     const vbsBody = `\uFEFFSet WshShell = CreateObject("WScript.Shell")\r\nWshShell.Run "${cmd}", 0, False\r\n`;
     const vbsBuf = Buffer.from(vbsBody, 'utf16le');
     backupIfDifferent(vbsPath, vbsBuf, backupDir);
     fs.writeFileSync(vbsPath, vbsBody, 'utf16le');
 
-    const taskRes = registerWindowsLogonVbsTask('AntigravityPatchGuardian', vbsPath, 'AntigravityPatchGuardian');
-    if (!taskRes.ok) {
-      spawnSync(
-        'reg',
-        [
-          'add',
-          'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
-          '/v',
-          'AntigravityPatchGuardian',
-          '/t',
-          'REG_SZ',
-          '/d',
-          `wscript.exe //B //NoLogo "${vbsPath}"`,
-          '/f'
-        ],
-        { stdio: 'ignore', windowsHide: true }
-      );
-      const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', dstGuardian], {
+    const taskRes = registerWindowsLogonVbsTask('AntigravityPatchGuardian', vbsPath, 'AntigravityPatchGuardian', {
+      repeatInterval: 'PT1M'
+    });
+    const bootedPid = taskRes.ok ? waitForLiveGuardianPid(stateDir, 4500) : null;
+    if (!taskRes.ok || !bootedPid) {
+      if (!taskRes.ok) {
+        console.warn(`      [WARN] Scheduled Task registration fallback (${taskRes.reason}); using HKCU\\Run.`);
+        spawnSync(
+          'reg',
+          [
+            'add',
+            'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run',
+            '/v',
+            'AntigravityPatchGuardian',
+            '/t',
+            'REG_SZ',
+            '/d',
+            `wscript.exe //B //NoLogo "${vbsPath}"`,
+            '/f'
+          ],
+          { stdio: 'ignore', windowsHide: true }
+        );
+      }
+      const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', dstGuardian, '--ensure'], {
         detached: true,
         stdio: 'ignore',
         windowsHide: true
       });
       child.unref();
+      waitForLiveGuardianPid(stateDir, 3000);
     }
     return;
   }
@@ -506,9 +679,17 @@ async function main() {
   deployGuardianAndAutostart(stateDir, backupDir);
 
   if (!SKIP_VERIFY) {
-    console.log('[5/5] Waiting 3s for daemon warmup & verifying live state...');
-    await new Promise((r) => setTimeout(r, 3000));
-    runChecked(process.execPath, [path.join(__dirname, 'verify.mjs')]);
+    console.log('[5/5] Waiting for daemon warmup & verifying live state...');
+    await new Promise((r) => setTimeout(r, 4500));
+    const vRes = spawnSync(process.execPath, [path.join(__dirname, 'verify.mjs')], {
+      stdio: 'inherit',
+      windowsHide: true
+    });
+    if (vRes.status !== 0) {
+      console.log('      Initial verify still warming up; retrying verify.mjs in 3s...');
+      await new Promise((r) => setTimeout(r, 3000));
+      runChecked(process.execPath, [path.join(__dirname, 'verify.mjs')]);
+    }
   }
 }
 

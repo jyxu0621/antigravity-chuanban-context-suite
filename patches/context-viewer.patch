@@ -15,7 +15,7 @@ index b1edce8..f5f2969 100644
          var p = patterns[i];
          if (p.regex.test(normalized)) {
 diff --git a/meter-renderer.js b/meter-renderer.js
-index abedafe..40e1f38 100644
+index abedafe..770fc47 100644
 --- a/meter-renderer.js
 +++ b/meter-renderer.js
 @@ -1283,8 +1283,8 @@
@@ -962,7 +962,60 @@ index abedafe..40e1f38 100644
      } else {
        window.open?.(url, '_blank');
      }
-@@ -28392,8 +27721,9 @@ var cumLockedKey = null;
+@@ -25583,6 +24912,8 @@ var cumLockedKey = null;
+     }
+   }
+ 
++  let lastCdpRecordFlushAt = 0;
++
+   async function flushPendingFinalCalls(triggerSyncEvenIfUnchanged) {
+     if (triggerSyncEvenIfUnchanged && state.flushFinalsBusy) {
+       state.pendingFlushForceSync = true;
+@@ -25654,9 +24985,14 @@ var cumLockedKey = null;
+         }
+       }
+       if (!state.disposed && anySucceeded) {
++        if (isCdpDaemonMode()) {
++          lastCdpRecordFlushAt = Date.now();
++        }
+         if (!failedDuringLoop && state.pendingFinalCalls.size === 0) {
+           state.nextFlushRetryAt = 0;
+           state.nextOversizeRetryAt = 0;
++        } else if (!failedDuringLoop && isCdpDaemonMode() && state.pendingFinalCalls.size > 0 && state.pendingFinalCalls.size < 20) {
++          state.nextFlushRetryAt = Math.max(state.nextFlushRetryAt || 0, lastCdpRecordFlushAt + 12000);
+         }
+         if (triggerSyncEvenIfUnchanged || state.pendingFlushForceSync || anyChanged) {
+           state.pendingFlushForceSync = false;
+@@ -25827,7 +25163,11 @@ var cumLockedKey = null;
+       }
+ 
+       if (hasNewOrProgressedPending) {
+-        state.nextFlushRetryAt = 0;
++        if (isCdpDaemonMode() && lastCdpRecordFlushAt > 0 && state.pendingFinalCalls.size < 20 && Date.now() - lastCdpRecordFlushAt < 12000) {
++          state.nextFlushRetryAt = Math.max(state.nextFlushRetryAt || 0, lastCdpRecordFlushAt + 12000);
++        } else {
++          state.nextFlushRetryAt = 0;
++        }
+       }
+       if (state.pendingFinalCalls.size > 0) {
+         void flushPendingFinalCalls(wasHydrated);
+@@ -25910,7 +25250,14 @@ var cumLockedKey = null;
+       renderFiles(result.data.session);
+       if (state.historyDrawerOpen) scheduleLatestCallRefresh({ allowTimelineRefresh: true });
+     } catch (e) { if (generation === state.generation && !state.disposed) state.scanError = e.message; }
+-    finally { if (generation === state.generation && !state.disposed) { state.scanBusy = false; state.scanNext = Date.now() + (document.hidden ? 60000 : 20000); render(); } }
++    finally {
++      if (generation === state.generation && !state.disposed) {
++        state.scanBusy = false;
++        const cdpIdleScan = isCdpDaemonMode() && !state.open;
++        state.scanNext = Date.now() + (document.hidden ? (cdpIdleScan ? 120000 : 60000) : (cdpIdleScan ? 60000 : 20000));
++        render();
++      }
++    }
+   }
+ 
+   let lastAvailableModelsSync = 0;
+@@ -28392,8 +27739,9 @@ var cumLockedKey = null;
      if (!host.isConnected) {
        ensureHostDocked();
      }
@@ -973,7 +1026,7 @@ index abedafe..40e1f38 100644
        for (const controller of state.controllers) controller.abort(); state.controllers.clear(); state.generation++;
        if (timelineFetchController) {
          try { timelineFetchController.abort(); } catch { }
-@@ -28404,10 +27734,15 @@ var cumLockedKey = null;
+@@ -28404,10 +27752,15 @@ var cumLockedKey = null;
        clearLivePendingRequestWait();
        if (state.sessionCallsMap) state.sessionCallsMap.clear();
        if (state.expandedTurnKeys) state.expandedTurnKeys.clear();
@@ -991,7 +1044,7 @@ index abedafe..40e1f38 100644
          displayedCallRecord: null, displayedCallSig: '', pendingLatestCallRecord: null,
          pinnedCallRecord: null, latestCallDetailOpen: false, lastAnimatedCallSig: '',
          historyDrawerOpen: false, sessionTimeline: null, timelineLoading: false,
-@@ -28415,9 +27750,11 @@ var cumLockedKey = null;
+@@ -28415,9 +27768,11 @@ var cumLockedKey = null;
          lastTimelineFetchAt: 0, lastTimelineCallSig: '',
          speedBreakdownOpen: false, streamSampleTracker: null, lastSpeedEval: null, speedOverrideForTest: null
        });
@@ -1005,13 +1058,14 @@ index abedafe..40e1f38 100644
        }
        toggle(false); hideContextTooltip(); renderFiles(null); render();
      }
-@@ -28433,7 +27770,10 @@ var cumLockedKey = null;
+@@ -28433,7 +27788,11 @@ var cumLockedKey = null;
          void syncQuotaFromHost(false);
        }
      }
 -    if (Date.now() - lastHistorySync > 15000) {
 +    const cdpBgMode = isCdpDaemonMode();
-+    const bgHistoryInterval = cdpBgMode ? 60000 : 15000;
++    const tokensPanelHidden = !el('panel-tokens') || el('panel-tokens').hidden;
++    const bgHistoryInterval = cdpBgMode ? (lastHistorySync > 0 && tokensPanelHidden ? 300000 : 60000) : 15000;
 +    const deferColdBootHistory = cdpBgMode && lastHistorySync === 0 && (Date.now() - rendererMountedAt < 10000);
 +    if (!deferColdBootHistory && Date.now() - lastHistorySync > bgHistoryInterval) {
        const isInitialSync = lastHistorySync === 0;
@@ -1089,7 +1143,7 @@ index b1edce8..f5f2969 100644
          var p = patterns[i];
          if (p.regex.test(normalized)) {
 diff --git a/src/renderer/main.js b/src/renderer/main.js
-index 4a1736d..8ad4c04 100644
+index 4a1736d..3c0bc12 100644
 --- a/src/renderer/main.js
 +++ b/src/renderer/main.js
 @@ -207,7 +207,7 @@
@@ -1243,7 +1297,60 @@ index 4a1736d..8ad4c04 100644
      } else {
        window.open?.(url, '_blank');
      }
-@@ -15201,8 +15245,9 @@
+@@ -12392,6 +12436,8 @@
+     }
+   }
+ 
++  let lastCdpRecordFlushAt = 0;
++
+   async function flushPendingFinalCalls(triggerSyncEvenIfUnchanged) {
+     if (triggerSyncEvenIfUnchanged && state.flushFinalsBusy) {
+       state.pendingFlushForceSync = true;
+@@ -12463,9 +12509,14 @@
+         }
+       }
+       if (!state.disposed && anySucceeded) {
++        if (isCdpDaemonMode()) {
++          lastCdpRecordFlushAt = Date.now();
++        }
+         if (!failedDuringLoop && state.pendingFinalCalls.size === 0) {
+           state.nextFlushRetryAt = 0;
+           state.nextOversizeRetryAt = 0;
++        } else if (!failedDuringLoop && isCdpDaemonMode() && state.pendingFinalCalls.size > 0 && state.pendingFinalCalls.size < 20) {
++          state.nextFlushRetryAt = Math.max(state.nextFlushRetryAt || 0, lastCdpRecordFlushAt + 12000);
+         }
+         if (triggerSyncEvenIfUnchanged || state.pendingFlushForceSync || anyChanged) {
+           state.pendingFlushForceSync = false;
+@@ -12636,7 +12687,11 @@
+       }
+ 
+       if (hasNewOrProgressedPending) {
+-        state.nextFlushRetryAt = 0;
++        if (isCdpDaemonMode() && lastCdpRecordFlushAt > 0 && state.pendingFinalCalls.size < 20 && Date.now() - lastCdpRecordFlushAt < 12000) {
++          state.nextFlushRetryAt = Math.max(state.nextFlushRetryAt || 0, lastCdpRecordFlushAt + 12000);
++        } else {
++          state.nextFlushRetryAt = 0;
++        }
+       }
+       if (state.pendingFinalCalls.size > 0) {
+         void flushPendingFinalCalls(wasHydrated);
+@@ -12719,7 +12774,14 @@
+       renderFiles(result.data.session);
+       if (state.historyDrawerOpen) scheduleLatestCallRefresh({ allowTimelineRefresh: true });
+     } catch (e) { if (generation === state.generation && !state.disposed) state.scanError = e.message; }
+-    finally { if (generation === state.generation && !state.disposed) { state.scanBusy = false; state.scanNext = Date.now() + (document.hidden ? 60000 : 20000); render(); } }
++    finally {
++      if (generation === state.generation && !state.disposed) {
++        state.scanBusy = false;
++        const cdpIdleScan = isCdpDaemonMode() && !state.open;
++        state.scanNext = Date.now() + (document.hidden ? (cdpIdleScan ? 120000 : 60000) : (cdpIdleScan ? 60000 : 20000));
++        render();
++      }
++    }
+   }
+ 
+   let lastAvailableModelsSync = 0;
+@@ -15201,8 +15263,9 @@
      if (!host.isConnected) {
        ensureHostDocked();
      }
@@ -1254,7 +1361,7 @@ index 4a1736d..8ad4c04 100644
        for (const controller of state.controllers) controller.abort(); state.controllers.clear(); state.generation++;
        if (timelineFetchController) {
          try { timelineFetchController.abort(); } catch { }
-@@ -15213,10 +15258,15 @@
+@@ -15213,10 +15276,15 @@
        clearLivePendingRequestWait();
        if (state.sessionCallsMap) state.sessionCallsMap.clear();
        if (state.expandedTurnKeys) state.expandedTurnKeys.clear();
@@ -1272,7 +1379,7 @@ index 4a1736d..8ad4c04 100644
          displayedCallRecord: null, displayedCallSig: '', pendingLatestCallRecord: null,
          pinnedCallRecord: null, latestCallDetailOpen: false, lastAnimatedCallSig: '',
          historyDrawerOpen: false, sessionTimeline: null, timelineLoading: false,
-@@ -15224,9 +15274,11 @@
+@@ -15224,9 +15292,11 @@
          lastTimelineFetchAt: 0, lastTimelineCallSig: '',
          speedBreakdownOpen: false, streamSampleTracker: null, lastSpeedEval: null, speedOverrideForTest: null
        });
@@ -1286,13 +1393,14 @@ index 4a1736d..8ad4c04 100644
        }
        toggle(false); hideContextTooltip(); renderFiles(null); render();
      }
-@@ -15242,7 +15294,10 @@
+@@ -15242,7 +15312,11 @@
          void syncQuotaFromHost(false);
        }
      }
 -    if (Date.now() - lastHistorySync > 15000) {
 +    const cdpBgMode = isCdpDaemonMode();
-+    const bgHistoryInterval = cdpBgMode ? 60000 : 15000;
++    const tokensPanelHidden = !el('panel-tokens') || el('panel-tokens').hidden;
++    const bgHistoryInterval = cdpBgMode ? (lastHistorySync > 0 && tokensPanelHidden ? 300000 : 60000) : 15000;
 +    const deferColdBootHistory = cdpBgMode && lastHistorySync === 0 && (Date.now() - rendererMountedAt < 10000);
 +    if (!deferColdBootHistory && Date.now() - lastHistorySync > bgHistoryInterval) {
        const isInitialSync = lastHistorySync === 0;

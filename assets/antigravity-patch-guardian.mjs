@@ -68,10 +68,13 @@ const SYNC_INTERVAL_MS = 2_500;
 const HEARTBEAT_EVERY_TICKS = 6; // 6 * 2.5s = 15s 轻量存活校验
 const FALLBACK_BACKOFF_MS = 10_000;
 const NAV_DEBOUNCE_MS = 120;
+const CDP_CMD_TIMEOUT_MS = 8_000;
+const ATTACH_TIMEOUT_MS = 10_000;
 const MAX_BODY_BYTES = 1024 * 1024;
 const MAX_RECORD_CALLS = 500;
 const MAX_LOG_BYTES = 512 * 1024;
 const RUN_ONCE = process.argv.includes('--once');
+const ENSURE_MODE = process.argv.includes('--ensure');
 
 const { getStateDir } = require(path.join(REPO_DIR, 'asar-engine.js'));
 const modulesCfgApi = require(path.join(REPO_DIR, 'modules-config.js'));
@@ -137,24 +140,98 @@ function getFileMtimeSig(filePath) {
 }
 
 // ============================================================================
-// 1. 单实例 PID 锁（沿用 Windows 命令行校验防止 PID 复用误杀）
+// 1. 单实例 PID 锁与 --ensure 极速健康探针（沿用 Windows 命令行校验防止 PID 复用误杀）
 // ============================================================================
+function sleepSync(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {}
+}
+
+function probeLiveDaemonHealth(port, token, expectedPid) {
+  if (!port || !token || !expectedPid) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const req = http.get(
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/health',
+        headers: { 'X-AG-Context-Token': token },
+        timeout: 600
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode !== 200) return resolve(false);
+          try {
+            const parsed = JSON.parse(data);
+            resolve(Boolean(parsed?.ok && parsed?.pid === expectedPid && parsed?.mode === 'cdp-daemon'));
+          } catch {
+            resolve(false);
+          }
+        });
+      }
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+
 function isGuardianPidAlive(pid) {
   if (!pid || pid <= 0 || pid === process.pid) return false;
   try {
     process.kill(pid, 0);
-  } catch {
-    return false;
+  } catch (err) {
+    if (!err || err.code !== 'EPERM') return false;
   }
   if (process.platform === 'win32') {
+    const tl = spawnSync('tasklist', ['/FI', `PID eq ${Number(pid)}`, '/FO', 'CSV', '/NH'], {
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 3000
+    });
+    if (tl.status === 0 && !String(tl.stdout || '').toLowerCase().includes('node.exe')) {
+      return false;
+    }
     const res = spawnSync(
       'powershell.exe',
-      ['-NoProfile', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CommandLine`],
+      ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId = ${Number(pid)}" -ErrorAction SilentlyContinue).CommandLine`],
       { encoding: 'utf8', windowsHide: true, timeout: 4000 }
     );
-    return String(res.stdout || '').includes('antigravity-patch-guardian');
+    const out = String(res.stdout || '');
+    if (out.includes('antigravity-patch-guardian')) return true;
+    if (out.trim().length > 0) return false;
+    // WMI 超时或空输出且 tasklist 已确认是 node.exe 时保守判定存活（仅在非强制替换路径）
+    return tl.status === 0 && res.status !== 0;
   }
   return true;
+}
+
+async function isHealthyDaemonRunningForEnsure() {
+  const oldPid = Number.parseInt(readTextSafe(PID_FILE).trim(), 10);
+  if (!Number.isInteger(oldPid) || oldPid <= 0 || oldPid === process.pid) return false;
+
+  try {
+    const rawLive = readTextSafe(LIVE_SESSION_FILE, '');
+    if (rawLive) {
+      const liveInfo = JSON.parse(rawLive);
+      if (liveInfo?.pid === oldPid && liveInfo?.port > 0 && liveInfo?.token) {
+        const healthy = await probeLiveDaemonHealth(liveInfo.port, liveInfo.token, oldPid);
+        if (healthy) return true;
+      }
+    }
+  } catch {}
+
+  // 若旧进程刚启动不到 6 秒尚未写完 .live-session.json，回退检查 PID 存活避免并发重入
+  try {
+    const st = fs.statSync(PID_FILE, { throwIfNoEntry: false });
+    if (st && Date.now() - st.mtimeMs < 6_000 && isGuardianPidAlive(oldPid)) {
+      return true;
+    }
+  } catch {}
+
+  return false;
 }
 
 function acquireSingleInstanceLock() {
@@ -163,19 +240,43 @@ function acquireSingleInstanceLock() {
   if (Number.isInteger(oldPid) && isGuardianPidAlive(oldPid)) {
     try {
       process.kill(oldPid, 'SIGTERM');
+      const deadline = Date.now() + 600;
+      while (Date.now() < deadline) {
+        try {
+          process.kill(oldPid, 0);
+          sleepSync(50);
+        } catch {
+          break;
+        }
+      }
     } catch {}
   }
   fs.writeFileSync(PID_FILE, String(process.pid), 'utf8');
-  const cleanup = () => {
+  let cleaned = false;
+  const cleanup = (reason = 'exit') => {
+    if (cleaned) return;
+    cleaned = true;
     try {
       if (fs.existsSync(PID_FILE) && fs.readFileSync(PID_FILE, 'utf8').trim() === String(process.pid)) {
         fs.unlinkSync(PID_FILE);
       }
     } catch {}
+    if (reason !== 'exit') {
+      appendLog('INFO', `Daemon stopping (pid=${process.pid}, reason=${reason})`);
+    }
   };
-  process.on('exit', cleanup);
-  process.on('SIGINT', () => { cleanup(); process.exit(0); });
-  process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+  process.on('exit', (code) => {
+    cleanup('exit');
+    if (code !== 0) {
+      appendLog('WARN', `Daemon process exit (pid=${process.pid}, code=${code})`);
+    }
+  });
+  process.on('beforeExit', (code) => {
+    appendLog('WARN', `Daemon beforeExit (pid=${process.pid}, code=${code})`);
+  });
+  process.on('SIGINT', () => { cleanup('SIGINT'); process.exit(0); });
+  process.on('SIGTERM', () => { cleanup('SIGTERM'); process.exit(0); });
+  process.on('SIGBREAK', () => { cleanup('SIGBREAK'); process.exit(0); });
 }
 
 // ============================================================================
@@ -208,7 +309,7 @@ function resolveChannelEndpoint(channelName) {
   } catch {}
 
   const channelInstalled = fs.existsSync(portFile) || fs.existsSync(path.dirname(portFile)) || fs.existsSync(dotDir);
-  return { channel: channelName, portFile, fallbackPort, channelInstalled };
+  return { channel: channelName, portFile, dotDir, fallbackPort, channelInstalled };
 }
 
 const CHANNEL_ENDPOINTS = [resolveChannelEndpoint('stable'), resolveChannelEndpoint('insiders')];
@@ -262,11 +363,58 @@ let liveServer = null;
 const activePageOrigins = new Map(); // origin -> { url, updatedAt }
 let lastPrimaryOrigin = '';
 
-const HISTORY_CACHE_TTL_MS = 60_000;
+const HISTORY_CACHE_TTL_MS = 180_000;
+const HISTORY_DIRTY_COOLDOWN_MS = 30_000;
+const SCAN_CACHE_TTL_MS = 45_000;
+const SCAN_CACHE_MAX_ENTRIES = 4;
 let cachedSettingsSnapshot = null;
 let cachedHistorySnapshot = null;
 let cachedHistoryAt = 0;
+let historyDirty = false;
 let historyFetchPromise = null;
+const scanCache = new Map(); // `${origin}|${id}` -> { data, at }
+const scanInFlight = new Map(); // `${origin}|${id}` -> Promise<object>
+let lastHighMemLogAt = 0;
+
+function setBoundedScanCache(key, data) {
+  if (scanCache.has(key)) scanCache.delete(key);
+  scanCache.set(key, { data, at: Date.now() });
+  while (scanCache.size > SCAN_CACHE_MAX_ENTRIES) {
+    const oldest = scanCache.keys().next().value;
+    if (oldest !== undefined) scanCache.delete(oldest);
+    else break;
+  }
+}
+
+function getScanCoalesced(origin, id, { force = false } = {}) {
+  const key = `${origin}|${id || ''}`;
+  const now = Date.now();
+  if (!force) {
+    const cached = scanCache.get(key);
+    if (cached && now - cached.at < SCAN_CACHE_TTL_MS) {
+      return Promise.resolve(cached.data);
+    }
+    const existing = scanInFlight.get(key);
+    if (existing) {
+      return existing;
+    }
+  }
+  const p = Promise.resolve(collect(origin, id, { force: Boolean(force), supersedePrevious: true }))
+    .then((rawData) => {
+      const clean = stripHeavyScanPayload(rawData);
+      if (clean && !clean.abortedStale) {
+        setBoundedScanCache(key, clean);
+      }
+      return clean;
+    })
+    .finally(() => {
+      if (scanInFlight.get(key) === p) {
+        scanInFlight.delete(key);
+      }
+    });
+  scanInFlight.set(key, p);
+  return p;
+}
 
 function stripHeavyScanPayload(data) {
   if (!data || typeof data !== 'object') return data;
@@ -293,17 +441,25 @@ function stripHeavyScanPayload(data) {
 
 function getTokenHistoryCoalesced({ force = false } = {}) {
   const now = Date.now();
-  if (!force && cachedHistorySnapshot && now - cachedHistoryAt < HISTORY_CACHE_TTL_MS) {
+  const age = now - cachedHistoryAt;
+  if (
+    !force &&
+    cachedHistorySnapshot &&
+    age < HISTORY_CACHE_TTL_MS &&
+    (!historyDirty || age < HISTORY_DIRTY_COOLDOWN_MS)
+  ) {
     return Promise.resolve(cachedHistorySnapshot);
   }
   if (historyFetchPromise) {
     return historyFetchPromise;
   }
-  const p = Promise.resolve(collectTokenHistoryAsync({ force: Boolean(force) }))
+  const shouldForceCollector = Boolean(force || historyDirty);
+  const p = Promise.resolve(collectTokenHistoryAsync({ force: shouldForceCollector }))
     .then((hist) => {
       if (hist && !hist.loading) {
         cachedHistorySnapshot = hist;
         cachedHistoryAt = Date.now();
+        historyDirty = false;
       }
       return hist;
     })
@@ -421,6 +577,27 @@ function startLiveBridgeServer() {
   if (liveServer) return Promise.resolve(livePort);
   return new Promise((resolve, reject) => {
     const server = http.createServer(async (req, res) => {
+      if (req.method === 'GET' && req.url === '/health') {
+        if (req.headers['x-ag-context-token'] !== LIVE_SECRET) {
+          res.writeHead(403);
+          res.end();
+          return;
+        }
+        const mem = process.memoryUsage();
+        res.setHeader('Content-Type', 'application/json');
+        res.end(
+          JSON.stringify({
+            ok: true,
+            pid: process.pid,
+            mode: 'cdp-daemon',
+            uptimeSec: Math.round(process.uptime()),
+            rssMB: Math.round(mem.rss / 1048576),
+            attachedTargets: attachedTargets.size
+          })
+        );
+        return;
+      }
+
       const origin = req.headers.origin;
       const originKnown = Boolean(origin && activePageOrigins.has(origin));
       if (!originKnown) {
@@ -472,7 +649,7 @@ function startLiveBridgeServer() {
           }
           const changed = resCall && typeof resCall === 'object' ? !!resCall.changed : !!resCall;
           if (changed) {
-            cachedHistoryAt = 0;
+            historyDirty = true;
           }
           res.end(JSON.stringify({ ok: true, changed }));
           return;
@@ -489,6 +666,7 @@ function startLiveBridgeServer() {
           const result = savePluginSettings(request);
           if (result && result.ok) {
             refreshSettingsSnapshot();
+            historyDirty = true;
             cachedHistoryAt = 0;
           }
           res.end(JSON.stringify(result));
@@ -695,8 +873,7 @@ function startLiveBridgeServer() {
 
         // /scan
         const viewerVer = readViewerVersion();
-        const rawData = await collect(origin, request.id, { force: request.force === true });
-        const data = stripHeavyScanPayload(rawData);
+        const data = await getScanCoalesced(origin, request.id, { force: request.force === true });
         res.end(
           JSON.stringify({
             ok: true,
@@ -805,9 +982,13 @@ function buildCheckExpression() {
     if (!(${HOST_FP_CHECK_EXPR})) return true;
     var sig = ${JSON.stringify(cachedBundleSig)};
     if (window.__AGContextMeterBuildSig !== sig) return false;
+    if (!window.__AGContextMeterLive || window.__AGContextMeterLive.port !== ${livePort} || window.__AGContextMeterLive.token !== ${JSON.stringify(LIVE_SECRET)}) return false;
     if (window.__AGContextMeterWaitingBody === sig && document.readyState === 'loading') return true;
     if (${cachedWantZh ? 'true' : 'false'} && !window.__AGY_I18N_BOOTED__) return false;
-    if (${cachedWantMeter ? 'true' : 'false'} && (!window.__AGContextMeter || window.__AGContextMeterLoadedSig !== sig)) return false;
+    if (${cachedWantMeter ? 'true' : 'false'}) {
+      if (!window.__AGContextMeter || window.__AGContextMeterLoadedSig !== sig) return false;
+      if (document.readyState !== 'loading' && document.body && !document.getElementById('ag-context-meter')) return false;
+    }
     return true;
   })()`;
 }
@@ -979,14 +1160,17 @@ function attachTarget(target, endpoint) {
         resolveAttach(ok);
       }
     };
-    const attachTimeout = setTimeout(() => finishAttach(false), 3000);
+    const attachTimeout = setTimeout(() => finishAttach(false), ATTACH_TIMEOUT_MS);
 
     try {
       const ws = new WebSocket(wsUrl);
+      const createdAt = Date.now();
       let msgId = 1;
       let evalScriptId = null;
       let initialAttachDone = false;
       let navDebounceTimer = null;
+      let injectInFlight = false;
+      let injectQueued = false;
       const pendingCallbacks = new Map();
 
       const send = (method, params = {}) =>
@@ -996,7 +1180,7 @@ function attachTarget(target, endpoint) {
           const timer = setTimeout(() => {
             pendingCallbacks.delete(id);
             resolve(null);
-          }, 3000);
+          }, CDP_CMD_TIMEOUT_MS);
           pendingCallbacks.set(id, (msg) => {
             clearTimeout(timer);
             resolve(msg);
@@ -1020,6 +1204,10 @@ function attachTarget(target, endpoint) {
           expression: cachedInjectScript,
           returnByValue: true
         });
+        if (!res) {
+          appendLog('WARN', `CDP inject timed out or closed on ${target.id} [${endpoint.channel}]`);
+          return false;
+        }
         if (res?.error) {
           appendLog('ERROR', `CDP inject error on ${target.id} [${endpoint.channel}]: ${res.error.message || JSON.stringify(res.error)}`);
           return false;
@@ -1038,17 +1226,32 @@ function attachTarget(target, endpoint) {
       };
 
       const checkAndInject = async () => {
-        try {
-          const checkRes = await send('Runtime.evaluate', {
-            expression: buildCheckExpression(),
-            returnByValue: true
-          });
-          if (checkRes?.result?.result?.value !== true) {
-            return await inject();
-          }
+        if (injectInFlight) {
+          injectQueued = true;
           return true;
+        }
+        injectInFlight = true;
+        try {
+          let lastOk = true;
+          do {
+            injectQueued = false;
+            const checkRes = await send('Runtime.evaluate', {
+              expression: buildCheckExpression(),
+              returnByValue: true
+            });
+            if (!checkRes) {
+              lastOk = false;
+            } else if (checkRes?.result?.result?.value !== true) {
+              lastOk = await inject();
+            } else {
+              lastOk = true;
+            }
+          } while (injectQueued && ws.readyState === WebSocket.OPEN);
+          return lastOk;
         } catch {
           return false;
+        } finally {
+          injectInFlight = false;
         }
       };
 
@@ -1114,6 +1317,9 @@ function attachTarget(target, endpoint) {
 
       attachedTargets.set(target.id, {
         ws,
+        createdAt,
+        isInitialAttachDone: () => initialAttachDone,
+        hasNewDocScript: () => Boolean(evalScriptId),
         updateNewDocScript,
         checkAndInject
       });
@@ -1139,15 +1345,22 @@ async function sync() {
     const nowMs = Date.now();
 
     for (const endpoint of CHANNEL_ENDPOINTS) {
+      const channelInstalledNow =
+        fs.existsSync(endpoint.portFile) ||
+        fs.existsSync(path.dirname(endpoint.portFile)) ||
+        (endpoint.dotDir && fs.existsSync(endpoint.dotDir));
       const port = readPort(endpoint.portFile);
       let targets = [];
       if (port && !probedPorts.has(port)) {
         probedPorts.add(port);
         targets = await fetchTargets(port);
+        if (targets.length > 0 && endpoint.fallbackPort) {
+          fallbackBackoffUntil.delete(endpoint.fallbackPort);
+        }
       }
       if (
         targets.length === 0 &&
-        endpoint.channelInstalled !== false &&
+        channelInstalledNow &&
         endpoint.fallbackPort &&
         !probedPorts.has(endpoint.fallbackPort) &&
         (RUN_ONCE || nowMs >= (fallbackBackoffUntil.get(endpoint.fallbackPort) || 0))
@@ -1174,14 +1387,24 @@ async function sync() {
 
       for (const page of pages) {
         activeTargetIds.add(page.id);
+        const existing = attachedTargets.get(page.id);
+        const staleWs =
+          existing &&
+          (existing.ws.readyState === WebSocket.CLOSED ||
+            existing.ws.readyState === WebSocket.CLOSING ||
+            (!existing.isInitialAttachDone() && nowMs - existing.createdAt > 15_000));
+        if (staleWs) {
+          try { existing.ws.close(); } catch {}
+          attachedTargets.delete(page.id);
+        }
         if (!attachedTargets.has(page.id)) {
           attachPromises.push(attachTarget(page, endpoint));
         } else {
           const entry = attachedTargets.get(page.id);
-          if (bundleChanged && entry.updateNewDocScript) {
+          if ((bundleChanged || (entry.isInitialAttachDone() && !entry.hasNewDocScript())) && entry.updateNewDocScript) {
             await entry.updateNewDocScript();
           }
-          if (shouldHeartbeatCheck && entry.checkAndInject) {
+          if (shouldHeartbeatCheck && entry.isInitialAttachDone() && entry.checkAndInject) {
             await entry.checkAndInject();
           }
         }
@@ -1196,6 +1419,8 @@ async function sync() {
     }
     if (currentOrigins.size > 0) {
       writeLiveSessionStamp();
+    } else if (scanCache.size > 0) {
+      scanCache.clear();
     }
 
     if (attachPromises.length > 0) {
@@ -1206,6 +1431,14 @@ async function sync() {
       if (!activeTargetIds.has(id)) {
         try { entry.ws.close(); } catch {}
         attachedTargets.delete(id);
+      }
+    }
+
+    if (shouldHeartbeatCheck && nowMs - lastHighMemLogAt > 300_000) {
+      const rssMB = Math.round(process.memoryUsage().rss / 1048576);
+      if (rssMB >= 700) {
+        lastHighMemLogAt = nowMs;
+        appendLog('WARN', `High daemon memory watermark: rss=${rssMB}MB, scanCache=${scanCache.size}, targets=${attachedTargets.size}`);
       }
     }
   } catch (err) {
@@ -1232,16 +1465,16 @@ async function main() {
     appendLog('ERROR', `Missing meter-renderer.js at ${WATCHED_FILES.meterRenderer}`);
     process.exit(1);
   }
+  if (ENSURE_MODE && !RUN_ONCE) {
+    if (await isHealthyDaemonRunningForEnsure()) {
+      process.exit(0);
+    }
+  }
   acquireSingleInstanceLock();
   await startLiveBridgeServer();
   refreshSettingsSnapshot();
   rebuildBundleIfNeeded();
   daemonReady = true;
-  if (!RUN_ONCE) {
-    setTimeout(() => {
-      refreshSnapshotsAsync({ includeHistory: true });
-    }, 10_000).unref?.();
-  }
   appendLog(
     'INFO',
     `Antigravity Context CDP Daemon started (pid=${process.pid}, mode=${RUN_ONCE ? 'once' : 'daemon'}, livePort=${livePort}, sig=${cachedBundleSig})`
