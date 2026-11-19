@@ -370,7 +370,8 @@ async function main() {
         themeCfg.modules?.i18n === false &&
         themeCfg.modules?.metrics === false &&
         themeCfg.modules?.coldBootHealer !== false &&
-        themeCfg.modules?.zoomShortcuts !== false
+        themeCfg.modules?.zoomShortcuts !== false &&
+        themeCfg.modules?.cdpAutoRelaunch !== false
     ) &&
     fs.existsSync(themeCustomJs) &&
     Boolean(modulesJson?.modules?.chinese?.enabled === true && modulesJson?.modules?.proxy?.enabled === false) &&
@@ -409,7 +410,8 @@ async function main() {
         themeCfg.modules?.i18n === false &&
         themeCfg.modules?.metrics === false &&
         themeCfg.modules?.coldBootHealer !== false &&
-        themeCfg.modules?.zoomShortcuts !== false
+        themeCfg.modules?.zoomShortcuts !== false &&
+        themeCfg.modules?.cdpAutoRelaunch !== false
     ),
     themeCustomJsExists: fs.existsSync(themeCustomJs),
     modulesState: modulesJson?.modules || null,

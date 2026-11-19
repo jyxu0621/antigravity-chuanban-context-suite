@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-A **Claude-style UI beautification and localization plugin for Google Antigravity 2.x** (仿Claude风格的antigravity反重力美化插件, verified on `2.32.1`). It integrates the **Chuanban theme patch `v5.4.2`** with a **streamlined Antigravity ContextViewer `v0.8.7` (Quota Ring, Speed tab, crisp DPI popup positioning, v3.3.4 Chinese localization with merged Chuanban dictionary fallback)** via pure Chrome DevTools Protocol (CDP) and loopback HTTP daemons without modifying official `app.asar`.
+A **Claude-style UI beautification and localization plugin for Google Antigravity 2.x** (仿Claude风格的antigravity反重力美化插件, verified for `2.33.0+`). It integrates the **Chuanban theme patch `v5.5.0`** (M1+M2 `2.33.0` CDP opt-in relay, `cdpAutoRelaunch`, `Google Sans Flex` + `AgSarasaUI`, `1,860` i18n keys) with a **streamlined Antigravity ContextViewer `v0.8.8`** (Quota Ring, Speed tab, By-Model usage, session timeline, multi-account bridge, crisp DPI popup positioning, `v3.3.4` Chinese localization with merged Chuanban dictionary fallback) via pure Chrome DevTools Protocol (CDP) and loopback HTTP daemons without modifying official `app.asar`.
 
 ---
 
@@ -26,15 +26,15 @@ A **Claude-style UI beautification and localization plugin for Google Antigravit
 
 This repository combines and adapts two open-source community projects so they run side by side without UI conflicts or heavy main-thread stalls:
 
-1. **[Anarcadia/chuanban-antigravity-theme-patch](https://github.com/Anarcadia/chuanban-antigravity-theme-patch)** (`v5.4.2`)
-   - Reused components: Theme styling, font setup (including Antigravity `2.32.1` PDF/DirectWrite font fixes, live `plugin://swarm--` iframe theme relay, host fingerprint gate, WSL2 dual-track support, native ME-SDDL Scheduled Task autostart, and optional warm dark preset), CDP launcher configuration, and daemon architecture.
-   - Suite adaptations ([`assets/theme-user-config.json`](assets/theme-user-config.json), [`assets/theme-user-custom.js`](assets/theme-user-custom.js)): Disables Chuanban's overlapping `i18n` and `metrics` modules (`false`), sets `"darkPreset": "onyx"` (switchable to `"claude-warm"`), and retains `composerWaxSeal`, `deadlockHealer`, `coldBootHealer`, `zoomShortcuts`, `customCss`, and `customJs`. When a ContextMeter or Quota popup (`#panel`, `#panel-quota`, `#panel-tokens`, etc.) opens, `theme-user-custom.js` promotes `#ag-context-meter` and its stacking ancestors to `z-index: 2147483500`, invokes `wcvBrowser.setPortalOverlayOpen`, and watches host parent `childList` plus capture-phase clicks so re-injected meters rebind immediately.
-2. **[elviscjn-cjn/antigravity-context-viewer](https://github.com/elviscjn-cjn/antigravity-context-viewer)** (pinned verified base commit `5951a7ceda2e2c63266b2d8033226e33d82b900e`, `v0.8.7`)
-   - Reused components: Titlebar context meter, Model Quota Ring (`#badge-quota` + `/quota` panel), speed comparison tab, crisp external-display font & DPI pixel-grid positioning (`ELV-84`/`ELV-86`), token history panels, brand/language toggles, and the `v3.3.4` desktop Chinese localization runtime (`chinese` module).
+1. **[Anarcadia/chuanban-antigravity-theme-patch](https://github.com/Anarcadia/chuanban-antigravity-theme-patch)** (`v5.5.0`)
+   - Reused components: Theme styling, `Google Sans Flex` × `AgSarasaUI` font setup, Antigravity `2.33.0+` single-icon M1+M2 CDP opt-in relay (patching `.lnk`/`.desktop` shortcuts with `--remote-debugging-port=0` and automatic cold-start `--updated` relaunch), live `plugin://swarm--` iframe theme relay, host fingerprint gate, WSL2 dual-track support, native ME-SDDL Scheduled Task autostart, optional warm dark preset, and `1,860`-key dictionary.
+   - Suite adaptations ([`assets/theme-user-config.json`](assets/theme-user-config.json), [`assets/theme-user-custom.js`](assets/theme-user-custom.js)): Disables Chuanban's overlapping `i18n` and `metrics` modules (`false`), sets `"darkPreset": "onyx"` (switchable to `"claude-warm"`), and retains `composerWaxSeal`, `deadlockHealer`, `coldBootHealer`, `zoomShortcuts`, `cdpAutoRelaunch`, `customCss`, and `customJs`. When a ContextMeter, Quota, datepicker, or modal popup (`#panel`, `#panel-quota`, `#panel-tokens`, `#valid-end-popover`, `#account-remove-modal`, etc.) opens, `theme-user-custom.js` promotes `#ag-context-meter` and its stacking ancestors to `z-index: 2147483500`, invokes `wcvBrowser.setPortalOverlayOpen`, and watches host parent `childList` plus capture-phase clicks so re-injected meters rebind immediately.
+2. **[elviscjn-cjn/antigravity-context-viewer](https://github.com/elviscjn-cjn/antigravity-context-viewer)** (pinned verified base commit `838211fea3d305c72f3fe5f0c6ec340a644d481a`, `v0.8.8`)
+   - Reused components: Titlebar context meter, Model Quota Ring (`#badge-quota` + `/quota` panel), multi-account usage isolation, By-Model 7d/30d stacked chart and WSL usage aggregation, session request timeline, speed comparison & ELV-91 scoring, custom datepicker and trilingual currency rules, crisp external-display font & DPI pixel-grid positioning (`ELV-84`/`ELV-86`), brand/language toggles, and the `v3.3.4` desktop Chinese localization runtime (`chinese` module).
    - Suite adaptations ([`patches/context-viewer.patch`](patches/context-viewer.patch), [`assets/antigravity-patch-guardian.mjs`](assets/antigravity-patch-guardian.mjs)):
-     - Replaces `app.asar` disk modification with CDP runtime injection backed by a dynamic multi-origin loopback HTTP bridge (`process.noAsar = true`), enforces Antigravity host fingerprint checks so local preview pages are never touched, aligns live version and capability reporting with `v0.8.7` across `/quota`, `/modules-status`, `/toggle-module`, and `/open-external`, and restores a clean `app-*-base.asar` backup if an earlier ASAR marker is found.
-     - Merges safe filtered entries from Chuanban `core/i18n.json` as fallback behind ContextViewer `zh-CN.json` (plus injecting `window.__AGY_I18N_CONFIG__`) while keeping only one DOM observer active.
-     - Removes binary-patching/bloat panels (`#tab-ctx-models`, `#ctx-compact-card`, enhance preset/prompt cards, `proxy-notun-drawer`, `btn-toggle-colors` / panel palette), cleans up upstream orphan closing tags, suppresses startup update prompts (`autoCheckUpdate = false`), and caps `#panel` and `#panel-quota` height at `580px`.
+     - Replaces `app.asar` disk modification with CDP runtime injection backed by a dynamic multi-origin loopback HTTP bridge (`process.noAsar = true`), enforces Antigravity host fingerprint checks so local preview pages are never touched, adds uncaught exception/rejection crash logging, aligns live version and capability reporting with `v0.8.8` across `/quota`, `/scan`, `/session-timeline`, `/accounts-overview`, `/accounts-action`, `/modules-status`, `/toggle-module`, and `/open-external`, and restores a clean `app-*-base.asar` backup if an earlier ASAR marker is found.
+     - Merges safe filtered entries from Chuanban `v5.5.0`'s `1,860`-key `core/i18n.json` as fallback behind ContextViewer `zh-CN.json` (plus injecting `window.__AGY_I18N_CONFIG__`) while keeping only one DOM observer active.
+     - Removes binary-patching/bloat panels (`#tab-ctx-models`, `#pane-ctx-models`, `#ctx-compact-card`, enhance preset/prompt cards, `proxy-notun-drawer`, `btn-toggle-colors` / panel palette), suppresses startup update prompts (`autoCheckUpdate = false`), and caps `#panel` and `#panel-quota` height at `580px`.
      - Pairs upstream `6ms` `rAF` DOM translation slicing and `observedTitlebar` checks with `900ms` staggered `/scan` on live route changes, `5s` `/token-history` deduplication, and skipping full regex scans in `translateSingleUnit` after `exactDict` lookup for strings longer than `500` characters.
 
 ---
@@ -60,7 +60,7 @@ Copy either prompt below to Antigravity or another AI coding agent on a target m
 
 ## Summary of Changes
 
-- Separated module ownership: Chuanban `v5.4.2` handles theme styling, typography, Swarm/PDF live rendering fixes, and cold-boot/deadlock recovery, while ContextViewer `v0.8.7` provides context metrics, Model Quota Ring, speed comparison, crisp DPI placement, `v3.3.4` localization (with merged Chuanban dictionary fallback), and token history without overlapping observers.
+- Separated module ownership: Chuanban `v5.5.0` handles theme styling, `Google Sans Flex` typography, Antigravity `2.33.0+` CDP opt-in relay, Swarm/PDF live rendering fixes, and cold-boot/deadlock recovery, while ContextViewer `v0.8.8` provides context metrics, Model Quota Ring, multi-account isolation, By-Model stats, session timeline, speed comparison, crisp DPI placement, `v3.3.4` localization (with merged `1,860`-key Chuanban dictionary fallback), and token history without overlapping observers.
 - Fixed panel overlap: Elevated `#ag-context-meter` stacking context keeps `#panel`, `#panel-quota`, and token popovers above right-hand web or preview panes and restores original styles on close, with immediate rebinding on DOM remounts.
 - Reduced viewport clutter: Unused experimental Models/256K, Enhance prompt/title, ProxyNoTun, color customizer, and update drawers stay removed, and both `#panel` and `#panel-quota` `max-height` stay capped at `580px`.
 - Smoothed route transitions: Pairs upstream `6ms` rAF time-slicing and `observedTitlebar` fast checks with `900ms` staggered `/scan`, `/token-history` deduplication, and long-string regex bypassing to reduce main-thread frame spikes during conversation switches.
@@ -102,7 +102,7 @@ node scripts/setup.mjs
 | `--context-viewer-dir <dir>` | Custom path for the `antigravity-context-viewer` clone |
 | `--theme-repo-dir <dir>` | Custom path for `chuanban-antigravity-theme-patch` (default: `~/.gemini/antigravity/chuanban-theme-repo`) |
 | `--fonts-from <dir>` | Path to downloaded Chuanban font folder passed to `install-fonts --from` |
-| `--latest` | Apply the patch onto upstream `HEAD` instead of resetting to pinned commit `5951a7c` |
+| `--latest` | Apply the patch onto upstream `HEAD` instead of resetting to pinned commit `838211f` |
 | `--skip-tests` | Skip `node --test` unit tests after patching `antigravity-context-viewer` |
 | `--skip-verify` | Skip final `verify.mjs` execution |
 
@@ -118,10 +118,10 @@ node scripts/verify.mjs
 node scripts/verify.mjs --skip-cdp
 ```
 
-Run upstream ContextViewer core unit tests directly inside the patched viewer folder (187 tests passing):
+Run upstream ContextViewer core unit tests directly inside the patched viewer folder (225 tests passing):
 
 ```bash
-node --test meter-core.test.js meter-renderer.test.js meter-integration.test.js meter-v083-fixes.test.js meter-hotload.test.js
+node --test meter-core.test.js meter-renderer.test.js meter-integration.test.js meter-v083-fixes.test.js meter-hotload.test.js meter-elv91-speed.test.js meter-v089-usage.test.js
 ```
 
 > Overwritten user files are backed up under `<STATE_DIR>/backups/skill-setup/`. Stopping the two CDP daemons and uninstalling Chuanban restores stock Antigravity UI on reload or restart without modifying `app.asar`.
@@ -146,7 +146,7 @@ antigravity-chuanban-context-suite/
 │   ├── theme-user-config.json           # Adapted Chuanban user/config.json
 │   └── theme-user-custom.js             # Adapted Chuanban user/custom.js (stacking & WebContentsView sync)
 ├── patches/
-│   └── context-viewer.patch             # Clean patch over upstream@5951a7c (v0.8.7)
+│   └── context-viewer.patch             # Clean patch over upstream@838211f (v0.8.8)
 └── scripts/
     ├── setup.mjs                        # Cross-platform idempotent installer
     └── verify.mjs                       # Static, daemon, and live CDP verification script

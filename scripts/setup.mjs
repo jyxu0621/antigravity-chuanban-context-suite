@@ -21,7 +21,7 @@ const SKILL_ROOT = path.resolve(__dirname, '..');
 
 const UPSTREAM_THEME_REPO = 'https://github.com/Anarcadia/chuanban-antigravity-theme-patch.git';
 const UPSTREAM_VIEWER_REPO = 'https://github.com/elviscjn-cjn/antigravity-context-viewer.git';
-const VERIFIED_VIEWER_COMMIT = '5951a7ceda2e2c63266b2d8033226e33d82b900e';
+const VERIFIED_VIEWER_COMMIT = '838211fea3d305c72f3fe5f0c6ec340a644d481a';
 const SUITE_PATCHED_VIEWER_FILES = new Set([
   'i18n/i18n-runtime.js',
   'src/i18n/i18n-runtime.js',
@@ -174,7 +174,9 @@ function ensureViewerRepoAndPatch(viewerDir, stateDir) {
       'meter-renderer.test.js',
       'meter-integration.test.js',
       ...(fs.existsSync(path.join(viewerDir, 'meter-v083-fixes.test.js')) ? ['meter-v083-fixes.test.js'] : []),
-      ...(fs.existsSync(path.join(viewerDir, 'meter-hotload.test.js')) ? ['meter-hotload.test.js'] : [])
+      ...(fs.existsSync(path.join(viewerDir, 'meter-hotload.test.js')) ? ['meter-hotload.test.js'] : []),
+      ...(fs.existsSync(path.join(viewerDir, 'meter-elv91-speed.test.js')) ? ['meter-elv91-speed.test.js'] : []),
+      ...(fs.existsSync(path.join(viewerDir, 'meter-v089-usage.test.js')) ? ['meter-v089-usage.test.js'] : [])
     ];
     console.log(`      Running unit tests (${testFiles.map((f) => f.replace(/\.test\.js$/, '')).join(', ')})...`);
     runChecked(
@@ -365,7 +367,7 @@ function stopExistingGuardian(stateDir) {
 }
 
 function deployGuardianAndAutostart(stateDir, backupDir) {
-  console.log('[4/5] Deploying ContextMeter v0.8.7 + Chuanban v5.4.2 i18n CDP daemon & OS autostart...');
+  console.log('[4/5] Deploying ContextMeter v0.8.8 + Chuanban v5.5.0 (Antigravity 2.33.0+) i18n CDP daemon & OS autostart...');
   const scriptsDir = path.join(os.homedir(), '.gemini', 'antigravity', 'scripts');
   fs.mkdirSync(scriptsDir, { recursive: true });
 

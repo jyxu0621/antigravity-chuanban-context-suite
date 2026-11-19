@@ -32,9 +32,11 @@
     'panel-quota',
     'overflow-menu',
     'color-picker-popover',
-    'cli-launch-toast'
+    'cli-launch-toast',
+    'global-restart-modal',
+    'account-remove-modal'
   ];
-  const DISPLAY_POPUP_IDS = ['update-popover'];
+  const DISPLAY_POPUP_IDS = ['update-popover', 'valid-end-popover'];
   const VISIBLE_ATTR_POPUP_IDS = ['context-tooltip'];
   const ALL_POPUP_IDS = [
     ...HIDDEN_POPUP_IDS,

@@ -85,15 +85,17 @@ const normalizeClientLangFn =
     ? modulesCfgApi.normalizeClientLanguage
     : (v, fallbackOn = true) => (v === 'en' ? 'en' : v === 'zh-CN' ? 'zh-CN' : fallbackOn ? 'zh-CN' : 'en');
 const { isValidExternalUrl } = require(path.join(REPO_DIR, 'meter-core.js'));
+const collectorApi = require(path.join(REPO_DIR, 'meter-collector.js'));
 const {
   collect,
   collectTokenHistoryAsync,
+  collectSessionTimelineAsync,
   fetchQuotaSnapshotFromHost,
   recordModelCalls,
   getPluginSettings,
   savePluginSettings,
   launchCliSession
-} = require(path.join(REPO_DIR, 'meter-collector.js'));
+} = collectorApi;
 
 const STATE_DIR = getStateDir();
 const PID_FILE = path.join(STATE_DIR, 'patch-guardian.pid');
@@ -357,7 +359,10 @@ function readJsonBody(req) {
 const ALLOWED_BRIDGE_ROUTES = new Set([
   '/scan',
   '/token-history',
+  '/session-timeline',
   '/quota',
+  '/accounts-overview',
+  '/accounts-action',
   '/record-calls',
   '/get-settings',
   '/save-settings',
@@ -450,13 +455,94 @@ function startLiveBridgeServer() {
           return;
         }
 
+        if (req.url === '/session-timeline') {
+          const viewerVer = readViewerVersion();
+          const opts = request?.options && typeof request.options === 'object' ? request.options : request;
+          const safeOpts = {
+            origin,
+            force: opts?.force === true,
+            ...(Array.isArray(opts?.liveSteps) ? { liveSteps: opts.liveSteps } : {}),
+            ...(Array.isArray(opts?.liveCalls) ? { liveCalls: opts.liveCalls } : {}),
+            ...(Array.isArray(opts?.cascadeModelConfigs) ? { cascadeModelConfigs: opts.cascadeModelConfigs } : {}),
+            ...(opts?.userStatus && typeof opts.userStatus === 'object' ? { userStatus: opts.userStatus } : {})
+          };
+          const data =
+            typeof collectSessionTimelineAsync === 'function'
+              ? await collectSessionTimelineAsync(request?.id || '', safeOpts)
+              : null;
+          res.end(
+            JSON.stringify({
+              ok: true,
+              data: {
+                ...(data || {}),
+                backendVersion: viewerVer,
+                backendSource: 'live-host'
+              }
+            })
+          );
+          return;
+        }
+
         if (req.url === '/quota') {
           const resData =
             typeof fetchQuotaSnapshotFromHost === 'function'
-              ? await fetchQuotaSnapshotFromHost({ force: request.force === true })
+              ? await fetchQuotaSnapshotFromHost({
+                  force: request.force === true,
+                  origin,
+                  backendSource: 'live-host',
+                  currentModel: request.currentModel || null,
+                  browsePoolKey: request.browsePoolKey || null
+                })
               : { available: false, error: 'quota_unsupported' };
           const { _raw, ...safeData } = resData || {};
-          res.end(JSON.stringify({ ok: true, data: safeData }));
+          let accountSyncResult = null;
+          try {
+            const accountsModPath = path.join(REPO_DIR, 'meter-accounts.js');
+            if (fs.existsSync(accountsModPath)) {
+              const { getSharedAccountsManager } = require(accountsModPath);
+              const mgr = getSharedAccountsManager({ origin });
+              const email = resData?.planStatus?.email || (await mgr.detectCurrentActiveAccount())?.email || null;
+              if (email && resData?.snapshot) {
+                mgr.syncActiveHostQuotaSnapshot(resData, email);
+                const ov = mgr.getOverviewState();
+                if (ov.autoSwitch?.enabled && !resData.error) {
+                  accountSyncResult = await mgr.evaluateAutoSwitch({
+                    activeEmail: email,
+                    activeSnapshot: resData.snapshot,
+                    syncState: 'fresh',
+                    isGenerating: Boolean(request?.isGenerating)
+                  });
+                }
+              }
+            }
+          } catch {}
+          res.end(JSON.stringify({ ok: true, data: safeData, accountSyncResult }));
+          return;
+        }
+
+        if (req.url === '/accounts-overview') {
+          const accountsModPath = path.join(REPO_DIR, 'meter-accounts.js');
+          if (!fs.existsSync(accountsModPath)) {
+            res.end(JSON.stringify({ ok: false, error: 'accounts_unsupported' }));
+            return;
+          }
+          const { getSharedAccountsManager } = require(accountsModPath);
+          const mgr = getSharedAccountsManager({ origin });
+          await mgr.detectCurrentActiveAccount();
+          res.end(JSON.stringify(mgr.getOverviewState()));
+          return;
+        }
+
+        if (req.url === '/accounts-action') {
+          const accountsModPath = path.join(REPO_DIR, 'meter-accounts.js');
+          if (!fs.existsSync(accountsModPath)) {
+            res.end(JSON.stringify({ ok: false, error: 'accounts_unsupported' }));
+            return;
+          }
+          const { getSharedAccountsManager, dispatchAccountsAction } = require(accountsModPath);
+          const mgr = getSharedAccountsManager({ origin });
+          const outRes = await dispatchAccountsAction(mgr, request || {});
+          res.end(JSON.stringify(outRes));
           return;
         }
 
@@ -556,8 +642,18 @@ function startLiveBridgeServer() {
         }
 
         // /scan
+        const viewerVer = readViewerVersion();
         const data = await collect(origin, request.id, { force: request.force === true });
-        res.end(JSON.stringify({ ok: true, data }));
+        res.end(
+          JSON.stringify({
+            ok: true,
+            data: {
+              ...(data || {}),
+              backendVersion: viewerVer,
+              backendSource: 'live-host'
+            }
+          })
+        );
       } catch (e) {
         const statusCode = e?.statusCode || 200;
         res.statusCode = statusCode;
@@ -783,6 +879,7 @@ ${zhRuntimeCode}
       settings: true,
       launchCli: true,
       modules: true,
+      accounts: true,
       checkUpdate: false,
       applyUpdate: false,
       contextUnlock: false,
