@@ -35,7 +35,7 @@
      - 将运行方式从修改 `app.asar` 改为纯 CDP 注入配合动态回环 HTTP 桥接守护（`process.noAsar = true`），加入 Antigravity 宿主指纹校验避免误注本地预览页，补齐全局未捕获异常落盘防护，对齐 `v0.8.8` 版本与路由能力上报（`/quota`、`/scan`、`/session-timeline`、`/accounts-overview`、`/accounts-action`、`/modules-status`、`/toggle-module`、`/open-external` 等）；若检测到旧版 ASAR 补丁标记，仍会尝试从干净 `*-base.asar` 备份恢复官方文件。
      - 合并船板 `v5.5.0` 的 `1,860` 条 `core/i18n.json` 词条作为 `zh-CN.json` 后备补全，统一由单套 `v3.3.4` 汉化引擎执行，不启动第二套冲突观察器。
      - 移除涉及二进制补丁或冗余的抽屉与卡片（`#tab-ctx-models`、`#pane-ctx-models`、`#ctx-compact-card`、提示词增强卡片、`ProxyNoTun`、`btn-toggle-colors` / 面板调色板）以及启动更新弹窗，并将 `#panel` 与 `#panel-quota` 最大高度统一限制在 `580px`。
-     - 结合上游 `6ms` `rAF` 汉化分片与 `observedTitlebar` 快速判定，继续保留切会话路由时 `900ms` 错峰 `/scan`、`5s` 内 `/token-history` 去重，以及 `translateSingleUnit` 查完 `exactDict` 后跳过超过 `500` 字符文本的正则扫描。
+     - 结合上游 `6ms` `rAF` 汉化分片与 `observedTitlebar` 快速判定，进一步强化大历史防卡顿：进入任意会话（含冷启动首次点开旧对话）时 `requestPoll` 错峰 `450ms`、`/scan` 错峰 `1500ms` 并剥离返回体中的原始图片 Base64（`inlineData`）；`/record-calls` 切至后台 Worker `recordModelCallsAsync`；`/token-history` 采用守护端 `60s` 内存缓存 + 并发合并 + 启动延后 `10s` 预热及渲染端 `60s` 后台轮询；已装载同签名实例时跳过重复 CDP 重注；`translateSingleUnit` 查完 `exactDict` 后继续跳过超过 `500` 字符文本的正则扫描。
 
 ---
 
@@ -63,7 +63,7 @@
 - 主题与监控职责隔离：船板 `v5.5.0` 负责主题配色、`Google Sans Flex` 字体、Antigravity `2.33.0+` CDP 启动接力、Swarm/PDF 适配与冷启动/死锁自愈，ContextViewer `v0.8.8` 负责上下文用量、模型配额圆环、多账号隔离、按模型统计与请求时间线、输出速度对比、`v3.3.4` 汉化（合并船板 `1,860` 条后备词库）与 Token 统计，关闭重叠模块避免互相覆盖。
 - 弹窗置顶防遮挡：打开右上角上下文面板或配额面板时自动抬高宿主与祖先节点 `z-index` 至 `2147483500`，关闭后还原；支持动态重挂立即重绑，不被右侧浏览器或预览窗格挡住。
 - 精简面板高度：去掉 Models/256K、提示词增强、ProxyNoTun、调色板抽屉与更新弹窗，`#panel` 与 `#panel-quota` 统一限制 `max-height: 580px`，适配小屏与笔记本视口。
-- 对话切换减抖动：结合上游 `6ms` rAF 分片与 `observedTitlebar` 快速判定，继续保留路由 `900ms` 错峰扫描、`/token-history` 请求去重，以及长文本跳过正则扫描，减少切对话瞬间的掉帧。
+- 对话切换减抖动：结合上游 `6ms` rAF 分片与 `observedTitlebar` 快速判定，对首进与切换会话实行 `450ms`/`1500ms` 错峰、剥离 `/scan` 图片 Base64、异步入账与 `60s` `/token-history` 合并缓存、禁止同签名重复 CDP 重注，以及长文本跳过正则扫描，大幅压低冷启动与打开巨型旧对话时的卡顿。
 - 重启与升级自动重挂：依赖 `Page.addScriptToEvaluateOnNewDocument`、页面加载监听与系统级开机自启守护，客户端重启、重载或版本更新后无需重新配置。
 
 ---

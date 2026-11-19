@@ -92,6 +92,7 @@ const {
   collectSessionTimelineAsync,
   fetchQuotaSnapshotFromHost,
   recordModelCalls,
+  recordModelCallsAsync,
   getPluginSettings,
   savePluginSettings,
   launchCliSession
@@ -261,29 +262,73 @@ let liveServer = null;
 const activePageOrigins = new Map(); // origin -> { url, updatedAt }
 let lastPrimaryOrigin = '';
 
+const HISTORY_CACHE_TTL_MS = 60_000;
 let cachedSettingsSnapshot = null;
 let cachedHistorySnapshot = null;
-let historyFetchInFlight = false;
+let cachedHistoryAt = 0;
+let historyFetchPromise = null;
 
-function refreshSnapshotsAsync() {
+function stripHeavyScanPayload(data) {
+  if (!data || typeof data !== 'object') return data;
+  const session = data.session;
+  if (!session || !Array.isArray(session.attachments)) return data;
+  let stripped = false;
+  const cleanAttachments = session.attachments.map((att) => {
+    if (att && typeof att === 'object' && 'inlineData' in att) {
+      stripped = true;
+      const { inlineData, ...rest } = att;
+      return rest;
+    }
+    return att;
+  });
+  if (!stripped) return data;
+  return {
+    ...data,
+    session: {
+      ...session,
+      attachments: cleanAttachments
+    }
+  };
+}
+
+function getTokenHistoryCoalesced({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && cachedHistorySnapshot && now - cachedHistoryAt < HISTORY_CACHE_TTL_MS) {
+    return Promise.resolve(cachedHistorySnapshot);
+  }
+  if (historyFetchPromise) {
+    return historyFetchPromise;
+  }
+  const p = Promise.resolve(collectTokenHistoryAsync({ force: Boolean(force) }))
+    .then((hist) => {
+      if (hist && !hist.loading) {
+        cachedHistorySnapshot = hist;
+        cachedHistoryAt = Date.now();
+      }
+      return hist;
+    })
+    .finally(() => {
+      if (historyFetchPromise === p) {
+        historyFetchPromise = null;
+      }
+    });
+  historyFetchPromise = p;
+  return p;
+}
+
+function refreshSettingsSnapshot() {
   try {
     const settingsSnap = getPluginSettings();
     if (settingsSnap && settingsSnap.ok) {
       cachedSettingsSnapshot = settingsSnap;
     }
   } catch {}
-  if (!historyFetchInFlight) {
-    historyFetchInFlight = true;
-    void collectTokenHistoryAsync({ force: false })
-      .then((hist) => {
-        if (hist && !hist.loading) {
-          cachedHistorySnapshot = hist;
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        historyFetchInFlight = false;
-      });
+}
+
+function refreshSnapshotsAsync({ includeHistory = false } = {}) {
+  refreshSettingsSnapshot();
+  if (includeHistory) {
+    void getTokenHistoryCoalesced({ force: false }).catch(() => {});
   }
 }
 
@@ -416,14 +461,19 @@ function startLiveBridgeServer() {
             res.end(JSON.stringify({ ok: false, error: `单次入账记录数超出上限（最多 ${MAX_RECORD_CALLS} 条）` }));
             return;
           }
-          const resCall = recordModelCalls(calls);
+          const resCall =
+            typeof recordModelCallsAsync === 'function'
+              ? await recordModelCallsAsync(calls)
+              : recordModelCalls(calls);
           if (resCall && typeof resCall === 'object' && resCall.ok === false) {
             res.writeHead(500);
             res.end(JSON.stringify({ ok: false, changed: false, error: resCall.error || '入账落盘失败' }));
             return;
           }
           const changed = resCall && typeof resCall === 'object' ? !!resCall.changed : !!resCall;
-          if (changed) refreshSnapshotsAsync();
+          if (changed) {
+            cachedHistoryAt = 0;
+          }
           res.end(JSON.stringify({ ok: true, changed }));
           return;
         }
@@ -437,7 +487,10 @@ function startLiveBridgeServer() {
 
         if (req.url === '/save-settings') {
           const result = savePluginSettings(request);
-          if (result && result.ok) refreshSnapshotsAsync();
+          if (result && result.ok) {
+            refreshSettingsSnapshot();
+            cachedHistoryAt = 0;
+          }
           res.end(JSON.stringify(result));
           return;
         }
@@ -449,8 +502,7 @@ function startLiveBridgeServer() {
         }
 
         if (req.url === '/token-history') {
-          const data = await collectTokenHistoryAsync({ force: request.force === true });
-          if (data && !data.loading) cachedHistorySnapshot = data;
+          const data = await getTokenHistoryCoalesced({ force: request.force === true });
           res.end(JSON.stringify({ ok: true, data }));
           return;
         }
@@ -643,7 +695,8 @@ function startLiveBridgeServer() {
 
         // /scan
         const viewerVer = readViewerVersion();
-        const data = await collect(origin, request.id, { force: request.force === true });
+        const rawData = await collect(origin, request.id, { force: request.force === true });
+        const data = stripHeavyScanPayload(rawData);
         res.end(
           JSON.stringify({
             ok: true,
@@ -754,7 +807,7 @@ function buildCheckExpression() {
     if (window.__AGContextMeterBuildSig !== sig) return false;
     if (window.__AGContextMeterWaitingBody === sig && document.readyState === 'loading') return true;
     if (${cachedWantZh ? 'true' : 'false'} && !window.__AGY_I18N_BOOTED__) return false;
-    if (${cachedWantMeter ? 'true' : 'false'} && (!window.__AGContextMeter || !document.getElementById('ag-context-meter') || window.__AGContextMeterLoadedSig !== sig)) return false;
+    if (${cachedWantMeter ? 'true' : 'false'} && (!window.__AGContextMeter || window.__AGContextMeterLoadedSig !== sig)) return false;
     return true;
   })()`;
 }
@@ -869,6 +922,7 @@ ${zhRuntimeCode}
   const liveBridgeMeta = {
     port: livePort,
     token: LIVE_SECRET,
+    mode: 'cdp-daemon',
     version: readViewerVersion(),
     pid: process.pid,
     capabilities: {
@@ -1180,9 +1234,14 @@ async function main() {
   }
   acquireSingleInstanceLock();
   await startLiveBridgeServer();
-  refreshSnapshotsAsync();
+  refreshSettingsSnapshot();
   rebuildBundleIfNeeded();
   daemonReady = true;
+  if (!RUN_ONCE) {
+    setTimeout(() => {
+      refreshSnapshotsAsync({ includeHistory: true });
+    }, 10_000).unref?.();
+  }
   appendLog(
     'INFO',
     `Antigravity Context CDP Daemon started (pid=${process.pid}, mode=${RUN_ONCE ? 'once' : 'daemon'}, livePort=${livePort}, sig=${cachedBundleSig})`

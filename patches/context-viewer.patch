@@ -15,7 +15,7 @@ index b1edce8..f5f2969 100644
          var p = patterns[i];
          if (p.regex.test(normalized)) {
 diff --git a/meter-renderer.js b/meter-renderer.js
-index abedafe..8661e6b 100644
+index abedafe..40e1f38 100644
 --- a/meter-renderer.js
 +++ b/meter-renderer.js
 @@ -1283,8 +1283,8 @@
@@ -47,7 +47,29 @@ index abedafe..8661e6b 100644
        <button id="tab-ctx-speed" class="ctx-tab-btn" type="button" role="tab" aria-selected="false" data-ctx-tab="speed"
          data-i18n="tab.speed">速度对比</button>
        <button id="tab-ctx-settings" class="ctx-tab-btn" type="button" role="tab" aria-selected="false"
-@@ -2887,377 +2883,6 @@
+@@ -2811,21 +2807,6 @@
+         </div>
+       </div>
+ 
+-      <!-- 紧凑上下文设置入口卡片 -->
+-      <div id="ctx-compact-card" class="ctx-compact-card">
+-        <div class="ctx-compact-info">
+-          <div class="ctx-compact-title" data-i18n="session.compact.title">上下文设置</div>
+-          <div class="ctx-compact-meta">
+-            <span><span data-i18n="session.compact.savedLabel">本模型已保存：</span><strong
+-                id="ctx-compact-saved" data-i18n="status.savedDefault">未单独设置（使用默认）</strong></span>
+-            <span><span data-i18n="session.compact.clientLabel">客户端当前使用：</span><strong
+-                id="ctx-compact-client" data-i18n="status.badge.reading">状态读取中…</strong></span>
+-          </div>
+-        </div>
+-        <button id="btn-goto-model-settings" class="ctx-compact-link-btn" type="button"
+-          data-i18n="session.compact.gotoModels">去模型设置 ›</button>
+-      </div>
+-
+       <!-- 底层技术参数与附件审计 -->
+       <div class="tech-drawer">
+         <button id="btn-toggle-details" class="drawer-trigger" aria-expanded="false" type="button">
+@@ -2887,377 +2868,6 @@
        </div>
      </div>
  
@@ -425,7 +447,7 @@ index abedafe..8661e6b 100644
      <!-- 分页 3: 速度对比 -->
      <div id="pane-ctx-speed" class="ctx-tab-pane" role="tabpanel" aria-labelledby="tab-ctx-speed" hidden>
        <div class="ctx-speed-toolbar">
-@@ -3332,74 +2957,8 @@
+@@ -3332,74 +2942,8 @@
          主动测试：未接通。目前没有可靠的指定模型调用入口，暂时只能使用日常对话的实测记录。</div>
      </div>
  
@@ -501,7 +523,7 @@ index abedafe..8661e6b 100644
        <!-- 2. 客户端界面语言与品牌标题 (Antigravity 本身) -->
        <div class="ctx-settings-card" id="client-brand-lang-card">
          <div class="ctx-settings-card-hdr">
-@@ -3434,130 +2993,14 @@
+@@ -3434,130 +2978,14 @@
            <button id="btn-apply-brand-title" class="unlock-btn unlock-btn-secondary" type="button"
              data-i18n="enhance.brand.applyBtn">保存品牌选择并应用</button>
          </div>
@@ -639,7 +661,7 @@ index abedafe..8661e6b 100644
          </div>
        </div>
      </div>
-@@ -3569,149 +3012,6 @@
+@@ -3569,149 +2997,6 @@
      <div id="chinese-drawer-body" style="display:none;"><span id="chinese-drawer-arrow"></span></div>
    </div>
  
@@ -789,7 +811,7 @@ index abedafe..8661e6b 100644
    <!-- 全局统一居中重启确认模态弹窗（立即可见，支持顶部、底部与配置区所有重启入口） -->
    <div id="global-restart-modal" class="ag-modal-overlay" hidden role="dialog" aria-modal="true"
      aria-labelledby="modal-restart-title">
-@@ -9225,7 +8525,7 @@ function formatPeriodCalendarLabel(currentPeriod) {
+@@ -9225,7 +8510,7 @@ function formatPeriodCalendarLabel(currentPeriod) {
    let heatYearOffset = 0;
    let activeCostModel = 'gemini-3.8-flash';
    let activeCostMode = 'ref';
@@ -798,7 +820,7 @@ index abedafe..8661e6b 100644
    let cachedLatestRelease = null;
  
    const METER_RENDERER_VERSION = typeof METER_VERSION !== 'undefined' ? METER_VERSION : '0.8.8';
-@@ -11050,7 +10350,11 @@ function formatPeriodCalendarLabel(currentPeriod) {
+@@ -11050,7 +10335,11 @@ function formatPeriodCalendarLabel(currentPeriod) {
          left = Math.max(snapToDevicePixel(minLeft), left);
  
          const maxWidthPx = Math.max(260, vw - left - 12);
@@ -811,7 +833,7 @@ index abedafe..8661e6b 100644
          const geomKey = `${top}|${left}|${maxWidthPx}|${maxHeightPx}|${isCompact ? 1 : 0}|${dpr}`;
          if (panelEl._lastPlacedGeomKey === geomKey) return;
          panelEl._lastPlacedGeomKey = geomKey;
-@@ -11097,6 +10401,15 @@ function formatPeriodCalendarLabel(currentPeriod) {
+@@ -11097,6 +10386,15 @@ function formatPeriodCalendarLabel(currentPeriod) {
    function flushHostDomMutationCheck() {
      domMutationThrottleTimer = null;
      if (state.disposed) return;
@@ -827,7 +849,7 @@ index abedafe..8661e6b 100644
      if (!host.isConnected || host.getAttribute('data-dock') !== 'flow' || !findHostTitlebar()?.contains?.(host)) {
        scheduleLayoutSync();
      }
-@@ -14599,7 +13912,7 @@ function closeAllDropdowns(exceptWrap = null) {
+@@ -14599,7 +13897,7 @@ function closeAllDropdowns(exceptWrap = null) {
    let activeContextTab = 'session';
    try {
      const savedTab = localStorage?.getItem(CTX_ACTIVE_TAB_KEY);
@@ -836,7 +858,7 @@ index abedafe..8661e6b 100644
        activeContextTab = savedTab;
      }
    } catch { }
-@@ -15774,9 +15087,10 @@ function closeAllDropdowns(exceptWrap = null) {
+@@ -15774,9 +15072,10 @@ function closeAllDropdowns(exceptWrap = null) {
      btnTabSettings?.setAttribute('aria-selected', String(activeContextTab === 'settings'));
    }
  
@@ -848,7 +870,7 @@ index abedafe..8661e6b 100644
      if (tabName !== 'session' && tabName !== 'models' && tabName !== 'speed' && tabName !== 'settings') return;
      if (activeContextTab !== 'settings') {
        prevTabBeforeSettings = activeContextTab;
-@@ -15795,10 +15109,10 @@ function closeAllDropdowns(exceptWrap = null) {
+@@ -15795,10 +15094,10 @@ function closeAllDropdowns(exceptWrap = null) {
        renderSpeedComparisonTab();
      } else if (tabName === 'settings') {
        void refreshModulesDisplay();
@@ -861,7 +883,7 @@ index abedafe..8661e6b 100644
      }
      positionFloatingPanels();
    }
-@@ -15813,7 +15127,7 @@ function closeAllDropdowns(exceptWrap = null) {
+@@ -15813,7 +15112,7 @@ function closeAllDropdowns(exceptWrap = null) {
    }
  
    function closeContextSettings() {
@@ -870,7 +892,7 @@ index abedafe..8661e6b 100644
      positionFloatingPanels();
    }
  
-@@ -20513,10 +19827,12 @@ function closeAllDropdowns(exceptWrap = null) {
+@@ -20513,10 +19812,12 @@ function closeAllDropdowns(exceptWrap = null) {
      }
    });
  
@@ -885,7 +907,44 @@ index abedafe..8661e6b 100644
      void refreshModulesDisplay();
    }, 500);
    const initDetectTimer2 = setTimeout(() => {
-@@ -22119,6 +21435,17 @@ function closeAllDropdowns(exceptWrap = null) {
+@@ -22037,6 +21338,7 @@ function closeAllDropdowns(exceptWrap = null) {
+   }
+ 
+   let lastHistorySync = 0;
++  const rendererMountedAt = Date.now();
+   let historySyncBusy = false;
+   let historySyncPending = false;
+   let historySyncPendingForce = false;
+@@ -22046,11 +21348,27 @@ function closeAllDropdowns(exceptWrap = null) {
+   let hasScheduledInitialUpdateCheck = false;
+   let startupRestorePromise = null;
+ 
++  function isCdpDaemonMode() {
++    return Boolean(
++      typeof window !== 'undefined' &&
++      !window.contextMeterAPI?.scan &&
++      window.__AGContextMeterLive?.port &&
++      window.__AGContextMeterLive?.mode === 'cdp-daemon'
++    );
++  }
++
+   function syncPendingAutomaticHistory() {
+     if (!automaticHistorySyncPending || historySyncBusy || state.disposed) return;
+     const now = Date.now();
+-    if (lastAutomaticHistorySync !== null && now - lastAutomaticHistorySync < AUTOMATIC_HISTORY_SYNC_INTERVAL_MS) return;
++    const cdpMode = isCdpDaemonMode();
++    const minInterval = cdpMode ? 30000 : AUTOMATIC_HISTORY_SYNC_INTERVAL_MS;
++    if (lastAutomaticHistorySync !== null && now - lastAutomaticHistorySync < minInterval) return;
+     lastAutomaticHistorySync = now;
++    const tokensPanelOpen = Boolean(el('panel-tokens') && !el('panel-tokens').hidden);
++    if (cdpMode && !tokensPanelOpen) {
++      automaticHistorySyncPending = false;
++      return;
++    }
+     void syncTokenHistoryFromHost(true);
+   }
+ 
+@@ -22119,6 +21437,17 @@ function closeAllDropdowns(exceptWrap = null) {
      const url = 'https://github.com/elviscjn-cjn/antigravity-context-viewer' + pathSuffix;
      if (typeof window !== 'undefined' && typeof window.contextMeterAPI?.openExternal === 'function') {
        window.contextMeterAPI.openExternal(url);
@@ -903,7 +962,7 @@ index abedafe..8661e6b 100644
      } else {
        window.open?.(url, '_blank');
      }
-@@ -28392,8 +27719,9 @@ var cumLockedKey = null;
+@@ -28392,8 +27721,9 @@ var cumLockedKey = null;
      if (!host.isConnected) {
        ensureHostDocked();
      }
@@ -914,20 +973,50 @@ index abedafe..8661e6b 100644
        for (const controller of state.controllers) controller.abort(); state.controllers.clear(); state.generation++;
        if (timelineFetchController) {
          try { timelineFetchController.abort(); } catch { }
-@@ -28404,10 +27732,12 @@ var cumLockedKey = null;
+@@ -28404,10 +27734,15 @@ var cumLockedKey = null;
        clearLivePendingRequestWait();
        if (state.sessionCallsMap) state.sessionCallsMap.clear();
        if (state.expandedTurnKeys) state.expandedTurnKeys.clear();
-+      // 仅在真实运行环境中切换历史会话时将全量扫描错峰 900ms，优先让 Antigravity 与 language_server 完成首屏渲染；冷启动与单测保持即时触发
-+      const deferLiveScan = Boolean(prevRoute && !window.contextMeterAPI?.scan && window.__AGContextMeterLive?.port);
++      // 在 CDP 守护模式下进入任意会话（含冷启动首次点开旧对话）均让路宿主先渲染：requestPoll 错峰 450ms，全量 /scan 错峰 1500ms；单测与 IPC 模式保持即时触发
++      const cdpMode = isCdpDaemonMode();
++      const deferLiveScan = Boolean(cdpMode || (prevRoute && !window.contextMeterAPI?.scan && window.__AGContextMeterLive?.port));
++      const scanDelayMs = cdpMode ? 1500 : 900;
++      const reqDelayMs = cdpMode ? 450 : 0;
        Object.assign(state, {
          route: id, count: 0, latest: null, sessionCalls: [], sessionCostTotal: 0,
-         callsHydrated: false, requestAt: 0, requestError: '', requestBusy: false, requestNext: 0,
+-        callsHydrated: false, requestAt: 0, requestError: '', requestBusy: false, requestNext: 0,
 -        scanBusy: false, scanNext: 0, scanError: '', scan: null,
-+        scanBusy: false, scanNext: deferLiveScan ? Date.now() + 900 : 0, scanError: '', scan: null,
++        callsHydrated: false, requestAt: 0, requestError: '', requestBusy: false, requestNext: reqDelayMs ? Date.now() + reqDelayMs : 0,
++        scanBusy: false, scanNext: deferLiveScan ? Date.now() + scanDelayMs : 0, scanError: '', scan: null,
          displayedCallRecord: null, displayedCallSig: '', pendingLatestCallRecord: null,
          pinnedCallRecord: null, latestCallDetailOpen: false, lastAnimatedCallSig: '',
          historyDrawerOpen: false, sessionTimeline: null, timelineLoading: false,
+@@ -28415,9 +27750,11 @@ var cumLockedKey = null;
+         lastTimelineFetchAt: 0, lastTimelineCallSig: '',
+         speedBreakdownOpen: false, streamSampleTracker: null, lastSpeedEval: null, speedOverrideForTest: null
+       });
+-      // 避免切换会话后立刻撞上 15s 周期历史刷新，若已做过同步则确保至少留出 7s 窗口给当前会话优先加载
++      // 避免切换会话后立刻撞上周期历史刷新，留出充足窗口给宿主首屏与当前会话优先加载
+       if (lastHistorySync > 0) {
+-        lastHistorySync = Math.max(lastHistorySync, Date.now() - 8000);
++        const bgInterval = cdpMode ? 60000 : 15000;
++        const guardWindow = cdpMode ? 15000 : 7000;
++        lastHistorySync = Math.max(lastHistorySync, Date.now() - (bgInterval - guardWindow));
+       }
+       toggle(false); hideContextTooltip(); renderFiles(null); render();
+     }
+@@ -28433,7 +27770,10 @@ var cumLockedKey = null;
+         void syncQuotaFromHost(false);
+       }
+     }
+-    if (Date.now() - lastHistorySync > 15000) {
++    const cdpBgMode = isCdpDaemonMode();
++    const bgHistoryInterval = cdpBgMode ? 60000 : 15000;
++    const deferColdBootHistory = cdpBgMode && lastHistorySync === 0 && (Date.now() - rendererMountedAt < 10000);
++    if (!deferColdBootHistory && Date.now() - lastHistorySync > bgHistoryInterval) {
+       const isInitialSync = lastHistorySync === 0;
+       lastHistorySync = Date.now();
+       void syncTokenHistoryFromHost(false);
 diff --git a/meter-renderer.test.js b/meter-renderer.test.js
 index 7d90cb2..1ed5ce6 100644
 --- a/meter-renderer.test.js
@@ -1000,7 +1089,7 @@ index b1edce8..f5f2969 100644
          var p = patterns[i];
          if (p.regex.test(normalized)) {
 diff --git a/src/renderer/main.js b/src/renderer/main.js
-index 4a1736d..6664588 100644
+index 4a1736d..8ad4c04 100644
 --- a/src/renderer/main.js
 +++ b/src/renderer/main.js
 @@ -207,7 +207,7 @@
@@ -1099,7 +1188,44 @@ index 4a1736d..6664588 100644
      void refreshModulesDisplay();
    }, 500);
    const initDetectTimer2 = setTimeout(() => {
-@@ -10340,6 +10356,17 @@
+@@ -10258,6 +10274,7 @@
+   }
+ 
+   let lastHistorySync = 0;
++  const rendererMountedAt = Date.now();
+   let historySyncBusy = false;
+   let historySyncPending = false;
+   let historySyncPendingForce = false;
+@@ -10267,11 +10284,27 @@
+   let hasScheduledInitialUpdateCheck = false;
+   let startupRestorePromise = null;
+ 
++  function isCdpDaemonMode() {
++    return Boolean(
++      typeof window !== 'undefined' &&
++      !window.contextMeterAPI?.scan &&
++      window.__AGContextMeterLive?.port &&
++      window.__AGContextMeterLive?.mode === 'cdp-daemon'
++    );
++  }
++
+   function syncPendingAutomaticHistory() {
+     if (!automaticHistorySyncPending || historySyncBusy || state.disposed) return;
+     const now = Date.now();
+-    if (lastAutomaticHistorySync !== null && now - lastAutomaticHistorySync < AUTOMATIC_HISTORY_SYNC_INTERVAL_MS) return;
++    const cdpMode = isCdpDaemonMode();
++    const minInterval = cdpMode ? 30000 : AUTOMATIC_HISTORY_SYNC_INTERVAL_MS;
++    if (lastAutomaticHistorySync !== null && now - lastAutomaticHistorySync < minInterval) return;
+     lastAutomaticHistorySync = now;
++    const tokensPanelOpen = Boolean(el('panel-tokens') && !el('panel-tokens').hidden);
++    if (cdpMode && !tokensPanelOpen) {
++      automaticHistorySyncPending = false;
++      return;
++    }
+     void syncTokenHistoryFromHost(true);
+   }
+ 
+@@ -10340,6 +10373,17 @@
      const url = 'https://github.com/elviscjn-cjn/antigravity-context-viewer' + pathSuffix;
      if (typeof window !== 'undefined' && typeof window.contextMeterAPI?.openExternal === 'function') {
        window.contextMeterAPI.openExternal(url);
@@ -1117,7 +1243,7 @@ index 4a1736d..6664588 100644
      } else {
        window.open?.(url, '_blank');
      }
-@@ -15201,8 +15228,9 @@
+@@ -15201,8 +15245,9 @@
      if (!host.isConnected) {
        ensureHostDocked();
      }
@@ -1128,20 +1254,50 @@ index 4a1736d..6664588 100644
        for (const controller of state.controllers) controller.abort(); state.controllers.clear(); state.generation++;
        if (timelineFetchController) {
          try { timelineFetchController.abort(); } catch { }
-@@ -15213,10 +15241,12 @@
+@@ -15213,10 +15258,15 @@
        clearLivePendingRequestWait();
        if (state.sessionCallsMap) state.sessionCallsMap.clear();
        if (state.expandedTurnKeys) state.expandedTurnKeys.clear();
-+      // 仅在真实运行环境中切换历史会话时将全量扫描错峰 900ms，优先让 Antigravity 与 language_server 完成首屏渲染；冷启动与单测保持即时触发
-+      const deferLiveScan = Boolean(prevRoute && !window.contextMeterAPI?.scan && window.__AGContextMeterLive?.port);
++      // 在 CDP 守护模式下进入任意会话（含冷启动首次点开旧对话）均让路宿主先渲染：requestPoll 错峰 450ms，全量 /scan 错峰 1500ms；单测与 IPC 模式保持即时触发
++      const cdpMode = isCdpDaemonMode();
++      const deferLiveScan = Boolean(cdpMode || (prevRoute && !window.contextMeterAPI?.scan && window.__AGContextMeterLive?.port));
++      const scanDelayMs = cdpMode ? 1500 : 900;
++      const reqDelayMs = cdpMode ? 450 : 0;
        Object.assign(state, {
          route: id, count: 0, latest: null, sessionCalls: [], sessionCostTotal: 0,
-         callsHydrated: false, requestAt: 0, requestError: '', requestBusy: false, requestNext: 0,
+-        callsHydrated: false, requestAt: 0, requestError: '', requestBusy: false, requestNext: 0,
 -        scanBusy: false, scanNext: 0, scanError: '', scan: null,
-+        scanBusy: false, scanNext: deferLiveScan ? Date.now() + 900 : 0, scanError: '', scan: null,
++        callsHydrated: false, requestAt: 0, requestError: '', requestBusy: false, requestNext: reqDelayMs ? Date.now() + reqDelayMs : 0,
++        scanBusy: false, scanNext: deferLiveScan ? Date.now() + scanDelayMs : 0, scanError: '', scan: null,
          displayedCallRecord: null, displayedCallSig: '', pendingLatestCallRecord: null,
          pinnedCallRecord: null, latestCallDetailOpen: false, lastAnimatedCallSig: '',
          historyDrawerOpen: false, sessionTimeline: null, timelineLoading: false,
+@@ -15224,9 +15274,11 @@
+         lastTimelineFetchAt: 0, lastTimelineCallSig: '',
+         speedBreakdownOpen: false, streamSampleTracker: null, lastSpeedEval: null, speedOverrideForTest: null
+       });
+-      // 避免切换会话后立刻撞上 15s 周期历史刷新，若已做过同步则确保至少留出 7s 窗口给当前会话优先加载
++      // 避免切换会话后立刻撞上周期历史刷新，留出充足窗口给宿主首屏与当前会话优先加载
+       if (lastHistorySync > 0) {
+-        lastHistorySync = Math.max(lastHistorySync, Date.now() - 8000);
++        const bgInterval = cdpMode ? 60000 : 15000;
++        const guardWindow = cdpMode ? 15000 : 7000;
++        lastHistorySync = Math.max(lastHistorySync, Date.now() - (bgInterval - guardWindow));
+       }
+       toggle(false); hideContextTooltip(); renderFiles(null); render();
+     }
+@@ -15242,7 +15294,10 @@
+         void syncQuotaFromHost(false);
+       }
+     }
+-    if (Date.now() - lastHistorySync > 15000) {
++    const cdpBgMode = isCdpDaemonMode();
++    const bgHistoryInterval = cdpBgMode ? 60000 : 15000;
++    const deferColdBootHistory = cdpBgMode && lastHistorySync === 0 && (Date.now() - rendererMountedAt < 10000);
++    if (!deferColdBootHistory && Date.now() - lastHistorySync > bgHistoryInterval) {
+       const isInitialSync = lastHistorySync === 0;
+       lastHistorySync = Date.now();
+       void syncTokenHistoryFromHost(false);
 diff --git a/src/renderer/styles.css b/src/renderer/styles.css
 index 6f85a02..bc25f77 100644
 --- a/src/renderer/styles.css
@@ -1158,7 +1314,7 @@ index 6f85a02..bc25f77 100644
      #panel-tokens.cost-compact-view{width:400px!important;max-width:calc(100vw - 24px)}
      .ag-panel[hidden]{display:block!important;opacity:0;transform:translateY(-6px);visibility:hidden;pointer-events:none}
 diff --git a/src/renderer/template.html b/src/renderer/template.html
-index 682a3a9..fdf4de7 100644
+index 682a3a9..49ab02c 100644
 --- a/src/renderer/template.html
 +++ b/src/renderer/template.html
 @@ -134,8 +134,6 @@
@@ -1179,7 +1335,29 @@ index 682a3a9..fdf4de7 100644
        <button id="tab-ctx-speed" class="ctx-tab-btn" type="button" role="tab" aria-selected="false" data-ctx-tab="speed"
          data-i18n="tab.speed">速度对比</button>
        <button id="tab-ctx-settings" class="ctx-tab-btn" type="button" role="tab" aria-selected="false"
-@@ -355,377 +351,6 @@
+@@ -279,21 +275,6 @@
+         </div>
+       </div>
+ 
+-      <!-- 紧凑上下文设置入口卡片 -->
+-      <div id="ctx-compact-card" class="ctx-compact-card">
+-        <div class="ctx-compact-info">
+-          <div class="ctx-compact-title" data-i18n="session.compact.title">上下文设置</div>
+-          <div class="ctx-compact-meta">
+-            <span><span data-i18n="session.compact.savedLabel">本模型已保存：</span><strong
+-                id="ctx-compact-saved" data-i18n="status.savedDefault">未单独设置（使用默认）</strong></span>
+-            <span><span data-i18n="session.compact.clientLabel">客户端当前使用：</span><strong
+-                id="ctx-compact-client" data-i18n="status.badge.reading">状态读取中…</strong></span>
+-          </div>
+-        </div>
+-        <button id="btn-goto-model-settings" class="ctx-compact-link-btn" type="button"
+-          data-i18n="session.compact.gotoModels">去模型设置 ›</button>
+-      </div>
+-
+       <!-- 底层技术参数与附件审计 -->
+       <div class="tech-drawer">
+         <button id="btn-toggle-details" class="drawer-trigger" aria-expanded="false" type="button">
+@@ -355,377 +336,6 @@
        </div>
      </div>
  
@@ -1557,7 +1735,7 @@ index 682a3a9..fdf4de7 100644
      <!-- 分页 3: 速度对比 -->
      <div id="pane-ctx-speed" class="ctx-tab-pane" role="tabpanel" aria-labelledby="tab-ctx-speed" hidden>
        <div class="ctx-speed-toolbar">
-@@ -800,74 +425,8 @@
+@@ -800,74 +410,8 @@
          主动测试：未接通。目前没有可靠的指定模型调用入口，暂时只能使用日常对话的实测记录。</div>
      </div>
  
@@ -1633,7 +1811,7 @@ index 682a3a9..fdf4de7 100644
        <!-- 2. 客户端界面语言与品牌标题 (Antigravity 本身) -->
        <div class="ctx-settings-card" id="client-brand-lang-card">
          <div class="ctx-settings-card-hdr">
-@@ -902,130 +461,14 @@
+@@ -902,130 +446,14 @@
            <button id="btn-apply-brand-title" class="unlock-btn unlock-btn-secondary" type="button"
              data-i18n="enhance.brand.applyBtn">保存品牌选择并应用</button>
          </div>
@@ -1771,7 +1949,7 @@ index 682a3a9..fdf4de7 100644
          </div>
        </div>
      </div>
-@@ -1037,149 +480,6 @@
+@@ -1037,149 +465,6 @@
      <div id="chinese-drawer-body" style="display:none;"><span id="chinese-drawer-arrow"></span></div>
    </div>
  
