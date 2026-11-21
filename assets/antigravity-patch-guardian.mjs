@@ -64,8 +64,8 @@ function resolveViewerRepoDir() {
 }
 
 const REPO_DIR = resolveViewerRepoDir();
-const SYNC_INTERVAL_MS = 2_500;
-const HEARTBEAT_EVERY_TICKS = 6; // 6 * 2.5s = 15s 轻量存活校验
+const SYNC_INTERVAL_MS = 5_000;
+const HEARTBEAT_EVERY_TICKS = 6; // 6 * 5s = 30s 轻量存活校验（页面重载由 CDP WebSocket 事件实时推送）
 const FALLBACK_BACKOFF_MS = 10_000;
 const NAV_DEBOUNCE_MS = 120;
 const CDP_CMD_TIMEOUT_MS = 8_000;
@@ -488,15 +488,22 @@ function refreshSnapshotsAsync({ includeHistory = false } = {}) {
   }
 }
 
-function writeLiveSessionStamp() {
+let lastWrittenStampKey = '';
+
+function writeLiveSessionStamp(force = false) {
   if (!livePort) return;
   try {
     const origins = Array.from(activePageOrigins.keys());
+    const primaryOrigin = origins[0] || lastPrimaryOrigin || '';
+    const stampKey = `${livePort}|${process.pid}|${primaryOrigin}|${origins.join(',')}`;
+    if (!force && stampKey === lastWrittenStampKey && fs.existsSync(LIVE_SESSION_FILE)) {
+      return;
+    }
     const info = {
       port: livePort,
       token: LIVE_SECRET,
       pid: process.pid,
-      origin: origins[0] || lastPrimaryOrigin || '',
+      origin: primaryOrigin,
       origins,
       mode: 'cdp-daemon',
       startedAt: Date.now()
@@ -504,6 +511,7 @@ function writeLiveSessionStamp() {
     const tmp = `${LIVE_SESSION_FILE}.tmp_${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(info), 'utf8');
     fs.renameSync(tmp, LIVE_SESSION_FILE);
+    lastWrittenStampKey = stampKey;
   } catch {}
 }
 
@@ -572,6 +580,7 @@ const ALLOWED_BRIDGE_ROUTES = new Set([
   '/toggle-module',
   '/open-external'
 ]);
+const routeHits = {};
 
 function startLiveBridgeServer() {
   if (liveServer) return Promise.resolve(livePort);
@@ -592,7 +601,8 @@ function startLiveBridgeServer() {
             mode: 'cdp-daemon',
             uptimeSec: Math.round(process.uptime()),
             rssMB: Math.round(mem.rss / 1048576),
-            attachedTargets: attachedTargets.size
+            attachedTargets: attachedTargets.size,
+            routeHits
           })
         );
         return;
@@ -628,30 +638,13 @@ function startLiveBridgeServer() {
       }
 
       try {
+        routeHits[req.url] = (routeHits[req.url] || 0) + 1;
         const request = await readJsonBody(req);
         res.setHeader('Content-Type', 'application/json');
 
         if (req.url === '/record-calls') {
-          const calls = Array.isArray(request.calls) ? request.calls : [];
-          if (calls.length > MAX_RECORD_CALLS) {
-            res.writeHead(400);
-            res.end(JSON.stringify({ ok: false, error: `单次入账记录数超出上限（最多 ${MAX_RECORD_CALLS} 条）` }));
-            return;
-          }
-          const resCall =
-            typeof recordModelCallsAsync === 'function'
-              ? await recordModelCallsAsync(calls)
-              : recordModelCalls(calls);
-          if (resCall && typeof resCall === 'object' && resCall.ok === false) {
-            res.writeHead(500);
-            res.end(JSON.stringify({ ok: false, changed: false, error: resCall.error || '入账落盘失败' }));
-            return;
-          }
-          const changed = resCall && typeof resCall === 'object' ? !!resCall.changed : !!resCall;
-          if (changed) {
-            historyDirty = true;
-          }
-          res.end(JSON.stringify({ ok: true, changed }));
+          // 精简无累计 Token 热力图模式下跳过 35MB pricing_ledger_v1.json 重写，彻底根除后台磁盘与内存风暴
+          res.end(JSON.stringify({ ok: true, changed: false, skipped: 'slim_mode' }));
           return;
         }
 
@@ -1107,14 +1100,14 @@ ${zhRuntimeCode}
     version: readViewerVersion(),
     pid: process.pid,
     capabilities: {
-      quota: true,
+      quota: false,
       scan: true,
       tokenHistory: true,
-      recordCalls: true,
+      recordCalls: false,
       settings: true,
-      launchCli: true,
+      launchCli: false,
       modules: true,
-      accounts: true,
+      accounts: false,
       checkUpdate: false,
       applyUpdate: false,
       contextUnlock: false,

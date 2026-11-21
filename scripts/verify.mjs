@@ -2,7 +2,8 @@
 /**
  * Standalone verification script for antigravity-chuanban-context-suite.
  * Checks installed files, clean app.asar state, running background daemons,
- * and live Antigravity CDP state (Chuanban + ContextMeter + i18n + z-index + heights).
+ * PatchGuardian loopback /health, and live Antigravity CDP state
+ * (Chuanban v5.5.3 + single i18n + DSH bottom pill + GPU custom.css + slim ContextViewer v0.8.9 + z-index + heights).
  */
 
 import fs from 'node:fs';
@@ -125,9 +126,9 @@ function resolveCdpCandidates() {
   return Array.from(ports);
 }
 
-function fetchJson(url) {
+function fetchJson(url, headers = {}) {
   return new Promise((resolve) => {
-    const req = http.get(url, { timeout: 1000 }, (res) => {
+    const req = http.get(url, { timeout: 1500, headers }, (res) => {
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => {
@@ -137,6 +138,35 @@ function fetchJson(url) {
     req.on('error', () => resolve(null));
     req.on('timeout', () => { req.destroy(); resolve(null); });
   });
+}
+
+async function probeGuardianHealth(stateDir) {
+  const sessionFile = path.join(stateDir, '.live-session.json');
+  try {
+    if (!fs.existsSync(sessionFile)) return { ok: false, reason: '.live-session.json missing' };
+    const stamp = JSON.parse(fs.readFileSync(sessionFile, 'utf8'));
+    if (!stamp?.port || !stamp?.token) return { ok: false, reason: 'incomplete live-session.json' };
+    const data = await fetchJson(`http://127.0.0.1:${stamp.port}/health`, {
+      'X-AG-Context-Token': stamp.token
+    });
+    if (!data || data.ok !== true) return { ok: false, reason: 'health endpoint unreachable' };
+    const routeHits = data.routeHits || {};
+    const bannedHits = {
+      quota: routeHits['/quota'] || 0,
+      accountsOverview: routeHits['/accounts-overview'] || 0
+    };
+    return {
+      ok: true,
+      pid: data.pid,
+      uptimeSec: data.uptimeSec,
+      rssMB: data.rssMB,
+      attachedTargets: data.attachedTargets,
+      routeHits,
+      bannedRoutesZero: bannedHits.quota === 0 && bannedHits.accountsOverview === 0
+    };
+  } catch (err) {
+    return { ok: false, reason: err?.message || String(err) };
+  }
 }
 
 async function inspectLiveCdp() {
@@ -191,58 +221,67 @@ async function inspectLiveCdp() {
         const badge = sr?.getElementById('badge');
         const panel = sr?.getElementById('panel');
         const closeBtn = sr?.getElementById('close');
-        const quotaBadge = sr?.getElementById('badge-quota');
-        const panelQuota = sr?.getElementById('panel-quota');
-        const closeQuotaBtn = sr?.getElementById('close-quota');
         let bridgeModules = null;
-        let bridgeQuota = null;
         const live = window.__AGContextMeterLive || null;
         if (live?.port && live?.token) {
-          const reqOpts = (body) => ({
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
-            body: body || '{}'
-          });
           try {
-            const r = await fetch('http://127.0.0.1:' + live.port + '/modules-status', reqOpts('{}'));
+            const r = await fetch('http://127.0.0.1:' + live.port + '/modules-status', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-AG-Context-Token': live.token },
+              body: '{}'
+            });
             bridgeModules = await r.json();
           } catch (e) { bridgeModules = { error: String(e) }; }
-          try {
-            const q = await fetch('http://127.0.0.1:' + live.port + '/quota', reqOpts('{}'));
-            bridgeQuota = await q.json();
-          } catch (e) { bridgeQuota = { error: String(e) }; }
         }
         if (panel && !panel.hidden && closeBtn) closeBtn.click();
-        if (panelQuota && !panelQuota.hidden && closeQuotaBtn) closeQuotaBtn.click();
         await Promise.resolve();
         await Promise.resolve();
+        const caps = live?.capabilities || {};
         return {
           targetId: ${JSON.stringify(workbench.id)},
           origin: location.origin,
           chuanbanVersion: window.__ag_patch_version || null,
           chuanbanI18nObserver: Boolean(window.__ag_i18n_observer),
-          contextMeterMounted: Boolean(host && sr),
-          quotaMounted: Boolean(quotaBadge && panelQuota),
+          chuanbanTokenAnalyticsReady: typeof window.__ag_on_token_analytics === 'function',
+          chuanbanGpuCssApplied: Array.from(document.querySelectorAll('style')).some((s) =>
+            String(s.textContent || '').includes('agentStateDot')
+          ),
+          dshBottomPillHooked: Boolean(
+            typeof window.__agMeterPriorityCleanup === 'function' &&
+              typeof window.__ag_render_metrics === 'function'
+          ),
+          contextMeterMounted: Boolean(host && sr && badge && panel),
+          speedBadgeMounted: Boolean(sr?.getElementById('badge-speed')),
+          speedWaitSvgMounted: Boolean(sr?.getElementById('badge-speed-wait-svg')),
           speedTabMounted: Boolean(sr?.getElementById('tab-ctx-speed')),
-          brandLangCardMounted: Boolean(sr?.getElementById('client-brand-lang-card')),
           buildSig: window.__AGContextMeterBuildSig || null,
           loadedSig: window.__AGContextMeterLoadedSig || null,
           i18nBooted: Boolean(window.__AGY_I18N_BOOTED__),
           livePort: live?.port || null,
           liveVersion: live?.version || null,
-          liveCapabilitiesOk: Boolean(live?.capabilities?.quota && live?.capabilities?.modules),
+          liveCapabilitiesOk: Boolean(
+            caps.modules === true &&
+              caps.scan === true &&
+              caps.quota === false &&
+              caps.recordCalls === false &&
+              caps.launchCli === false &&
+              caps.accounts === false
+          ),
           bridgeModulesOk: Boolean(bridgeModules?.ok && bridgeModules?.mode === 'cdp-daemon'),
-          bridgeQuotaOk: Boolean(bridgeQuota && bridgeQuota.ok === true),
-          chineseBadge: sr?.getElementById('chinese-badge')?.textContent?.trim() || null,
           deletedAbsent: {
-            noModelsTab: !sr?.getElementById('tab-ctx-models'),
+            noQuotaBadge: !sr?.getElementById('badge-quota'),
+            noQuotaPanel: !sr?.getElementById('panel-quota'),
+            noCliBadge: !sr?.getElementById('badge-cli'),
+            noTokensBadge: !sr?.getElementById('badge-tokens'),
+            noTokensPanel: !sr?.getElementById('panel-tokens'),
+            noModelsTab: !sr?.getElementById('tab-ctx-models') && !sr?.getElementById('pane-ctx-models'),
             no256k: !sr?.getElementById('unlock-256k-drawer') && !sr?.getElementById('ctx-compact-card'),
             noEnhance: !sr?.getElementById('enhance-preset-card') && !sr?.getElementById('enhance-prompt-card'),
+            noBrandLangCard: !sr?.getElementById('client-brand-lang-card'),
             noProxy: !sr?.getElementById('proxy-notun-drawer'),
             noColorDrawer: !sr?.getElementById('btn-toggle-colors') && !sr?.getElementById('btn-panel-palette')
           },
-          hasPanelButtons: Boolean(host && badge && panel && closeBtn),
-          hasQuotaButtons: Boolean(host && quotaBadge && panelQuota && closeQuotaBtn)
+          hasPanelButtons: Boolean(host && badge && panel && closeBtn)
         };
       })()`);
 
@@ -279,50 +318,13 @@ async function inspectLiveCdp() {
         })()`);
       }
 
-      let quotaOpenZ = null, quotaClosedZ = null, quotaRectH = null, quotaMaxH = null;
-      if (baseState?.hasQuotaButtons) {
-        await nodeSleep(60);
-        const qOpened = await evalCdp(`(async () => {
-          const host = document.getElementById('ag-context-meter');
-          const sr = host?.shadowRoot;
-          const quotaBadge = sr?.getElementById('badge-quota');
-          const panelQuota = sr?.getElementById('panel-quota');
-          if (!panelQuota || !quotaBadge) return null;
-          quotaBadge.click();
-          await Promise.resolve();
-          await Promise.resolve();
-          await Promise.resolve();
-          return {
-            quotaOpenZ: getComputedStyle(host).zIndex,
-            quotaRectH: Math.round(panelQuota.getBoundingClientRect().height),
-            quotaMaxH: getComputedStyle(panelQuota).maxHeight
-          };
-        })()`);
-        quotaOpenZ = qOpened?.quotaOpenZ ?? null;
-        quotaRectH = qOpened?.quotaRectH ?? null;
-        quotaMaxH = qOpened?.quotaMaxH ?? null;
-        await nodeSleep(60);
-        quotaClosedZ = await evalCdp(`(async () => {
-          const host = document.getElementById('ag-context-meter');
-          const closeQuotaBtn = host?.shadowRoot?.getElementById('close-quota');
-          closeQuotaBtn?.click();
-          await Promise.resolve();
-          await Promise.resolve();
-          return getComputedStyle(host).zIndex;
-        })()`);
-      }
-
-      const { hasPanelButtons, hasQuotaButtons, ...rest } = baseState || {};
+      const { hasPanelButtons, ...rest } = baseState || {};
       const state = {
         ...rest,
         openZ,
         closedZ,
         panelHeight: rectH,
-        panelMaxHeight: maxH,
-        quotaOpenZ,
-        quotaClosedZ,
-        quotaPanelHeight: quotaRectH,
-        quotaPanelMaxHeight: quotaMaxH
+        panelMaxHeight: maxH
       };
       return { found: true, cdpPort: port, state };
     } finally {
@@ -339,6 +341,7 @@ async function main() {
   const guardianScript = path.join(home, '.gemini', 'antigravity', 'scripts', 'antigravity-patch-guardian.mjs');
   const themeConfig = path.join(home, '.gemini', 'antigravity', 'theme-patch', 'user', 'config.json');
   const themeCustomJs = path.join(home, '.gemini', 'antigravity', 'theme-patch', 'user', 'custom.js');
+  const themeCustomCss = path.join(home, '.gemini', 'antigravity', 'theme-patch', 'user', 'custom.css');
   const modulesFile = path.join(stateDir, 'modules.json');
 
   let cleanAsar = null;
@@ -359,45 +362,62 @@ async function main() {
   try { themeCfg = JSON.parse(fs.readFileSync(themeConfig, 'utf8')); } catch {}
 
   const daemons = checkDaemons();
+  const guardianHealth = await probeGuardianHealth(stateDir);
   const cdp = SKIP_CDP ? { skipped: true } : await inspectLiveCdp();
+
+  const themeConfigAdapted = Boolean(
+    themeCfg &&
+      themeCfg.modules?.i18n === true &&
+      themeCfg.modules?.metrics === true &&
+      themeCfg.modules?.tokenAnalytics !== false &&
+      themeCfg.modules?.coldBootHealer !== false &&
+      themeCfg.modules?.zoomShortcuts !== false &&
+      themeCfg.modules?.cdpAutoRelaunch !== false &&
+      themeCfg.modules?.customCss !== false &&
+      themeCfg.modules?.customJs !== false
+  );
 
   const staticOk =
     Boolean(viewerDir) &&
     cleanAsar !== false &&
     fs.existsSync(guardianScript) &&
-    Boolean(
-      themeCfg &&
-        themeCfg.modules?.i18n === false &&
-        themeCfg.modules?.metrics === false &&
-        themeCfg.modules?.coldBootHealer !== false &&
-        themeCfg.modules?.zoomShortcuts !== false &&
-        themeCfg.modules?.cdpAutoRelaunch !== false
-    ) &&
+    themeConfigAdapted &&
     fs.existsSync(themeCustomJs) &&
-    Boolean(modulesJson?.modules?.chinese?.enabled === true && modulesJson?.modules?.proxy?.enabled === false) &&
+    fs.existsSync(themeCustomCss) &&
+    Boolean(
+      modulesJson?.modules?.meter?.enabled !== false &&
+        modulesJson?.modules?.chinese?.enabled === false &&
+        modulesJson?.modules?.proxy?.enabled === false
+    ) &&
     daemons.themeDaemonPids.length > 0 &&
-    daemons.patchGuardianPids.length > 0;
+    daemons.patchGuardianPids.length > 0 &&
+    Boolean(guardianHealth.ok && guardianHealth.bannedRoutesZero);
+
+  const deletedOk = Boolean(
+    cdp.state?.deletedAbsent &&
+      Object.values(cdp.state.deletedAbsent).every((v) => v === true)
+  );
 
   const liveOk =
     SKIP_CDP ||
     !cdp.found ||
     Boolean(
       cdp.state?.chuanbanVersion &&
-        cdp.state?.chuanbanI18nObserver === false &&
-        cdp.state?.contextMeterMounted &&
-        cdp.state?.quotaMounted &&
-        cdp.state?.i18nBooted &&
-        cdp.state?.bridgeModulesOk &&
-        cdp.state?.bridgeQuotaOk &&
+        cdp.state?.chuanbanI18nObserver === true &&
+        cdp.state?.chuanbanTokenAnalyticsReady === true &&
+        cdp.state?.chuanbanGpuCssApplied === true &&
+        cdp.state?.dshBottomPillHooked === true &&
+        cdp.state?.contextMeterMounted === true &&
+        cdp.state?.speedBadgeMounted === true &&
+        cdp.state?.speedWaitSvgMounted === true &&
+        cdp.state?.speedTabMounted === true &&
+        cdp.state?.i18nBooted === false &&
+        cdp.state?.liveCapabilitiesOk === true &&
+        cdp.state?.bridgeModulesOk === true &&
         cdp.state?.openZ === '2147483500' &&
         cdp.state?.closedZ === '20' &&
-        cdp.state?.quotaOpenZ === '2147483500' &&
-        cdp.state?.quotaClosedZ === '20' &&
-        cdp.state?.deletedAbsent?.noModelsTab &&
-        cdp.state?.deletedAbsent?.no256k &&
-        cdp.state?.deletedAbsent?.noEnhance &&
-        cdp.state?.deletedAbsent?.noProxy &&
-        cdp.state?.deletedAbsent?.noColorDrawer
+        (cdp.state?.panelHeight == null || cdp.state.panelHeight <= 580) &&
+        deletedOk
     );
 
   const report = {
@@ -405,17 +425,12 @@ async function main() {
     viewerDir,
     guardianScriptExists: fs.existsSync(guardianScript),
     cleanOfficialAsar: cleanAsar,
-    themeConfigAdapted: Boolean(
-      themeCfg &&
-        themeCfg.modules?.i18n === false &&
-        themeCfg.modules?.metrics === false &&
-        themeCfg.modules?.coldBootHealer !== false &&
-        themeCfg.modules?.zoomShortcuts !== false &&
-        themeCfg.modules?.cdpAutoRelaunch !== false
-    ),
+    themeConfigAdapted,
     themeCustomJsExists: fs.existsSync(themeCustomJs),
+    themeCustomCssExists: fs.existsSync(themeCustomCss),
     modulesState: modulesJson?.modules || null,
     daemons,
+    guardianHealth,
     cdp
   };
 

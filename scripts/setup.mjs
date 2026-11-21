@@ -21,12 +21,13 @@ const SKILL_ROOT = path.resolve(__dirname, '..');
 
 const UPSTREAM_THEME_REPO = 'https://github.com/Anarcadia/chuanban-antigravity-theme-patch.git';
 const UPSTREAM_VIEWER_REPO = 'https://github.com/elviscjn-cjn/antigravity-context-viewer.git';
-const VERIFIED_VIEWER_COMMIT = '838211fea3d305c72f3fe5f0c6ec340a644d481a';
+const VERIFIED_VIEWER_COMMIT = '1ec6f3d381e687f51846d3690c10373bb8832a92';
 const SUITE_PATCHED_VIEWER_FILES = new Set([
   'i18n/i18n-runtime.js',
   'src/i18n/i18n-runtime.js',
   'meter-renderer.js',
   'meter-renderer.test.js',
+  'src/renderer/heatmap.js',
   'src/renderer/template.html',
   'src/renderer/styles.css',
   'src/renderer/main.js'
@@ -149,7 +150,7 @@ function ensureViewerRepoAndPatch(viewerDir, stateDir) {
           }
           runChecked('git', ['-C', viewerDir, 'checkout', '--', ...trackedDirty.map((entry) => entry.rel)]);
         }
-        runChecked('git', ['-C', viewerDir, 'fetch', 'origin']);
+        runChecked('git', ['-C', viewerDir, 'fetch', 'origin', '--tags']);
         runChecked('git', ['-C', viewerDir, 'checkout', VERIFIED_VIEWER_COMMIT]);
       }
     }
@@ -196,7 +197,8 @@ function configureStateAndCheckAsar(viewerDir, stateDir) {
   const cfg = loadModulesConfig();
   cfg.modules = cfg.modules || {};
   cfg.modules.meter = { ...(cfg.modules.meter || {}), enabled: true };
-  cfg.modules.chinese = { ...(cfg.modules.chinese || {}), enabled: true, desktopOnly: true };
+  // Desktop localization is owned exclusively by Chuanban v5.5.3 (1,940 keys) to avoid dual DOM MutationObservers.
+  cfg.modules.chinese = { ...(cfg.modules.chinese || {}), enabled: false, desktopOnly: true };
   cfg.modules.proxy = { ...(cfg.modules.proxy || {}), enabled: false };
   saveModulesConfig(cfg);
 
@@ -252,15 +254,24 @@ function installChuanbanTheme(themeRepoDir, backupDir) {
     windowsHide: true
   });
   let fontsReady = null;
+  let superTtcWarning = null;
   try {
     const parsed = JSON.parse(docRes.stdout || '{}');
     fontsReady = parsed.fontsReady ?? parsed.fonts?.allReady ?? null;
+    superTtcWarning = parsed.superTtcWarning || (parsed.superTtcActive ? 'Sarasa-SuperTTC.ttc active' : null);
   } catch {}
   if (fontsReady === false) {
     console.warn(
       '      [HINT] Chuanban fonts (Anthropic / Sarasa) appear missing on this PC.\n' +
         '             Download from https://drive.google.com/drive/folders/1NX92SgVUqtSjWg6bt6sIJXy-cn7J_boC\n' +
         '             and run: node install.mjs install-fonts --from <font-folder> (on Windows) or install to OS Fonts.'
+    );
+  }
+  if (process.platform === 'win32' && superTtcWarning) {
+    console.warn(
+      `      [HINT] Windows Sarasa-SuperTTC detected (${superTtcWarning}).\n` +
+        '             For crisp local CJK font rendering without SuperTTC fallback overhead, install the split\n' +
+        '             Windows-Sarasa-Split-SC-TTF pack and run: node install.mjs install-fonts --from <split-ttf-dir> --retire-super-ttc'
     );
   }
 
@@ -270,13 +281,19 @@ function installChuanbanTheme(themeRepoDir, backupDir) {
   fs.mkdirSync(userDir, { recursive: true });
   const srcCfg = path.join(SKILL_ROOT, 'assets', 'theme-user-config.json');
   const srcJs = path.join(SKILL_ROOT, 'assets', 'theme-user-custom.js');
+  const srcCss = path.join(SKILL_ROOT, 'assets', 'theme-user-custom.css');
   const dstCfg = path.join(userDir, 'config.json');
   const dstJs = path.join(userDir, 'custom.js');
+  const dstCss = path.join(userDir, 'custom.css');
 
   backupIfDifferent(dstCfg, fs.readFileSync(srcCfg), backupDir);
   backupIfDifferent(dstJs, fs.readFileSync(srcJs), backupDir);
   fs.copyFileSync(srcCfg, dstCfg);
   fs.copyFileSync(srcJs, dstJs);
+  if (fs.existsSync(srcCss)) {
+    backupIfDifferent(dstCss, fs.readFileSync(srcCss), backupDir);
+    fs.copyFileSync(srcCss, dstCss);
+  }
 
   const realThemeDaemon = path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'core', 'daemon.mjs');
   if (fs.existsSync(realThemeDaemon)) {
@@ -533,7 +550,7 @@ function waitForLiveGuardianPid(stateDir, maxWaitMs = 4500) {
 }
 
 function deployGuardianAndAutostart(stateDir, backupDir) {
-  console.log('[4/5] Deploying ContextMeter v0.8.8 + Chuanban v5.5.1 (Antigravity 2.33.0+) i18n CDP daemon & OS autostart...');
+  console.log('[4/5] Deploying ContextMeter v0.8.9 (slim) + Chuanban v5.5.3 (Antigravity 2.34.0+) CDP daemon & OS autostart...');
   const scriptsDir = path.join(os.homedir(), '.gemini', 'antigravity', 'scripts');
   fs.mkdirSync(scriptsDir, { recursive: true });
 

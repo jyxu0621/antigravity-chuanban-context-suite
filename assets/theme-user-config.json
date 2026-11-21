@@ -10,8 +10,9 @@
     "vscode-file://"
   ],
   "modules": {
-    "i18n": false,
-    "metrics": false,
+    "i18n": true,
+    "metrics": true,
+    "tokenAnalytics": true,
     "composerWaxSeal": true,
     "deadlockHealer": true,
     "coldBootHealer": true,

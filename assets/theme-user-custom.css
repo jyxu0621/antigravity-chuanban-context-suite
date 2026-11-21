@@ -1,0 +1,48 @@
+/* ============================================================================
+ * user/custom.css — 用户与执行端 Agent 专属样式改装层
+ * 说明：
+ * 1. 本文件在 core/theme.css 之后自动追加注入，升级 core/ 内核时永不覆盖本文件。
+ * 2. 修改本文件保存后，常驻守护进程会在 2.5 秒内自动检测并热重载生效，无需重启服务。
+ * 3. 若排障时怀疑自定义样式冲突，可运行 `node install.mjs verify --safe-mode` 临时隔离。
+ * ============================================================================ */
+
+/* ============================================================================
+ * 高刷屏 GPU 合成减负优化（保留所有悬停/点击交互反馈，关闭无意义 120–144Hz 持续空转动画）
+ * ============================================================================ */
+
+/* 1. 停止侧边栏与状态栏多组 2×2 脉动点（agentStateDot）144Hz 持续合成，保留清晰静态状态指示 */
+[data-agent-state-dot],
+span[style*="agentStateDot"] {
+  animation: none !important;
+  opacity: 0.72 !important;
+  will-change: auto !important;
+}
+
+/* 2. 停止「正在思考 / 运行中」流光遮罩（shimmer-text）144Hz GPU 蒙版重绘，保持清晰文本可读性 */
+.shimmer-text-mask,
+.shimmer-text-content {
+  animation: none !important;
+  transform: none !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+  will-change: auto !important;
+}
+
+/* 3. 关闭流式逐词 fade-in 动画（避免每条回复残留上百个 WAAPI 动画对象并让流式吐字更跟手） */
+span[style*="fade-in"] {
+  animation: none !important;
+  opacity: 1 !important;
+}
+
+/* 4. 关闭纯装饰性无限循环微动画（保留按钮 hover/active 反馈与常规交互过渡） */
+.animate-pulse,
+.animate-ping,
+.animate-bounce {
+  animation: none !important;
+}
+
+/* 5. 关闭大面积 backdrop-filter 毛玻璃实时模糊（避免弹窗/遮罩触发全屏 GPU 模糊通道） */
+[class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

@@ -1,24 +1,133 @@
 /**
- * user/custom.js — 用户/对方 Agent 专属前端扩展钩子
- * 在 core/runtime.js 执行完毕后于独立 try/catch 沙箱中调用。
- * 可直接使用入参 `ctx`（或别名 `boot`）：
- *   ctx.version          - 当前补丁版本与哈希
- *   ctx.preset           - 当前激活的色彩预设 ('high-contrast' | 'claude-desktop-purewhite' | 'vintage-deep')
- *   ctx.config           - 当前合并后的 user/config.json 对象
- *   ctx.modules          - 模块启用状态 (含 i18n, metrics, composerWaxSeal, deadlockHealer, zoomShortcuts, customCss, customJs)
- *   ctx.themeVars        - 当前注入的自定义 CSS 变量表
- *   ctx.dict             - 原型安全的当前汉化词典对象
- *   ctx.metrics          - 最近一次会话实时指标数据 (TPS / TTFT / Ctx / Out)
- *   ctx.syncPreset()     - 手动触发预设状态同步
- *   ctx.ensureMetricsPill(true) - 手动刷新实时指标胶囊布局
- *   ctx.onCleanup(fn)    - 注册热重载/卸载时的清理钩子（避免定时器或 MutationObserver 泄漏）
- *
- * 若此脚本报错，可通过 `node install.mjs verify --safe-mode` 一键绕过排障。
+ * user/custom.js — 船板 v5.5.3 + ContextViewer v0.8.9 协同扩展
+ * 1. 底部输入框胶囊（DSH Harness 风格）：格式化船板原生 #ag-live-metrics-pill 为
+ *    `入 <used>/<limit> (<pct>%) · 出 <out> · <tps> tok/s · 首字 <ttft>`（保留原生悬停详情卡）
+ * 2. 右上角 ContextViewer (#ag-context-meter) 最高层叠与原生 WebContentsView 穿透避让
+ *    （弹窗打开时提权至 z-index: 2147483500 并通知 wcvBrowser.setPortalOverlayOpen，关闭时无损恢复）
  */
 
 (function () {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (window.location && window.location.protocol === 'plugin:') return;
 
+  // 防御性清理可能残留的旧版自定义顶栏元素
+  for (const staleId of ['ag-topbar-telemetry', 'ag-topbar-telemetry-popover', 'ag-topbar-telemetry-style']) {
+    try {
+      const node = document.getElementById(staleId);
+      if (node) node.remove();
+    } catch {}
+  }
+
+  // =========================================================================
+  // 1. 底部胶囊 DSH Harness 风格格式化（纯事件驱动，零额外轮询）
+  // =========================================================================
+  function parseMetricsPayload(payload) {
+    if (!payload || !payload.hasData) return null;
+    const inlineHtml = String(payload.__agRawInlineHtml || payload.inlineHtml || '');
+    const tmp = document.createElement('div');
+    tmp.innerHTML = inlineHtml;
+    const plain = (tmp.textContent || '').replace(/\s+/g, ' ').trim();
+
+    const tpsMatch = plain.match(/(\d+(?:\.\d+)?)\s*tok\/s/i);
+    const ttftMatch = plain.match(/\b(TTFT|Hold)\s+([0-9.]+s)/i);
+    const ctxMatch = plain.match(/Ctx\s+([0-9.]+[kKmM]?)\s*\/\s*([0-9.]+[kKmM]?)\s*\((\d+)%\)/i);
+    const outMatch = plain.match(/\bOut\s+([0-9.]+[kKmM]?)/i);
+    const subMatch = plain.match(/(\+\d+\s*sub)/i);
+
+    let ctxClass = 'ag-ctx-ok';
+    if (inlineHtml.includes('ag-ctx-crit')) ctxClass = 'ag-ctx-crit';
+    else if (inlineHtml.includes('ag-ctx-warn')) ctxClass = 'ag-ctx-warn';
+
+    const pct = ctxMatch ? Math.max(0, Math.min(100, parseInt(ctxMatch[3], 10) || 0)) : null;
+    return {
+      tps: tpsMatch ? tpsMatch[1] : null,
+      ttftKind: ttftMatch ? ttftMatch[1] : null,
+      ttftVal: ttftMatch ? ttftMatch[2] : null,
+      ctxUsed: ctxMatch ? ctxMatch[1] : null,
+      ctxLimit: ctxMatch ? ctxMatch[2] : null,
+      ctxPct: pct,
+      ctxClass,
+      outTok: outMatch ? outMatch[1] : null,
+      subBadge: subMatch ? subMatch[1] : null
+    };
+  }
+
+  function buildDshBottomInlineHtml(parsed, fallbackHtml) {
+    if (!parsed || (!parsed.ctxUsed && !parsed.tps && !parsed.outTok)) return fallbackHtml || '';
+    const parts = [];
+    if (parsed.ctxUsed && parsed.ctxLimit && parsed.ctxPct !== null) {
+      parts.push(
+        `<span>入 ${parsed.ctxUsed}/${parsed.ctxLimit} <span class="${parsed.ctxClass}">(${parsed.ctxPct}%)</span></span>`
+      );
+    }
+    if (parsed.outTok) {
+      parts.push(`<span>出 ${parsed.outTok}</span>`);
+    }
+    if (parsed.tps) {
+      parts.push(`<span>${parsed.tps} tok/s</span>`);
+    }
+    if (parsed.ttftVal) {
+      const lbl = parsed.ttftKind && parsed.ttftKind.toLowerCase() === 'hold' ? '等待' : '首字';
+      parts.push(`<span>${lbl} ${parsed.ttftVal}</span>`);
+    }
+    if (parsed.subBadge) {
+      parts.push(`<span class="ag-sub-badge">${parsed.subBadge}</span>`);
+    }
+    return parts.join('<span class="ag-sep">·</span>');
+  }
+
+  function transformPayloadForBottom(payload) {
+    if (!payload || !payload.hasData || !payload.inlineHtml) return payload;
+    if (payload.__agDshFormatted) return payload;
+    const parsed = parseMetricsPayload(payload);
+    if (!parsed) return payload;
+    return Object.assign({}, payload, {
+      __agDshFormatted: true,
+      __agRawInlineHtml: payload.inlineHtml,
+      inlineHtml: buildDshBottomInlineHtml(parsed, payload.inlineHtml)
+    });
+  }
+
+  const origRenderMetrics = typeof window.__ag_render_metrics === 'function' ? window.__ag_render_metrics : null;
+  const wrappedRenderMetrics = function (payload) {
+    const transformed = transformPayloadForBottom(payload);
+    if (origRenderMetrics) {
+      origRenderMetrics.call(this, transformed);
+    }
+  };
+  if (origRenderMetrics) {
+    window.__ag_render_metrics = wrappedRenderMetrics;
+  }
+
+  function refreshExistingBottomPills() {
+    try {
+      const byId = window.__ag_metrics_by_id;
+      if (byId && typeof byId === 'object') {
+        for (const k of Object.keys(byId)) {
+          if (byId[k] && byId[k].hasData && !byId[k].__agDshFormatted) {
+            byId[k] = transformPayloadForBottom(byId[k]);
+          }
+        }
+      }
+      if (window.__ag_last_metrics && window.__ag_last_metrics.hasData && !window.__ag_last_metrics.__agDshFormatted) {
+        window.__ag_last_metrics = transformPayloadForBottom(window.__ag_last_metrics);
+      }
+      document.querySelectorAll('#ag-live-metrics-pill, .ag-live-metrics-pill').forEach((pill) => {
+        const cid = String(pill.getAttribute('data-ag-cascade-id') || '').trim().toLowerCase();
+        const textEl = pill.querySelector('.ag-live-metrics-text, #ag-live-metrics-text') || pill;
+        const p = (byId && cid && byId[cid]) || null;
+        if (p && p.hasData && p.inlineHtml && textEl && textEl.innerHTML !== p.inlineHtml) {
+          textEl.innerHTML = p.inlineHtml;
+        }
+      });
+    } catch {}
+  }
+
+  refreshExistingBottomPills();
+
+  // =========================================================================
+  // 2. ContextViewer (#ag-context-meter) 弹窗最高层叠与原生浏览器视图穿透避让
+  // =========================================================================
   try {
     if (typeof window.__agMeterPriorityCleanup === 'function') {
       window.__agMeterPriorityCleanup();
@@ -207,6 +316,10 @@
       return;
     }
     const shouldElevate = isAnyPopupOpen(boundMeter);
+    if (shouldElevate && elevated && boundMeter.style.getPropertyValue('z-index') !== '2147483500') {
+      elevateAncestors(boundMeter);
+      return;
+    }
     if (shouldElevate === elevated) return;
     elevated = shouldElevate;
     if (shouldElevate) {
@@ -316,6 +429,9 @@
   function cleanup() {
     if (disposed) return;
     disposed = true;
+    if (origRenderMetrics && window.__ag_render_metrics === wrappedRenderMetrics) {
+      window.__ag_render_metrics = origRenderMetrics;
+    }
     if (attachTimer) {
       clearTimeout(attachTimer);
       attachTimer = null;
@@ -344,5 +460,5 @@
   ensureBound();
   reconnectTimer = setInterval(() => {
     if (!boundMeter || !boundMeter.isConnected) ensureBound();
-  }, 3000);
+  }, 15000);
 })();
