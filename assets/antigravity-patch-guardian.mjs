@@ -602,6 +602,8 @@ function startLiveBridgeServer() {
             uptimeSec: Math.round(process.uptime()),
             rssMB: Math.round(mem.rss / 1048576),
             attachedTargets: attachedTargets.size,
+            wantZh: cachedWantZh,
+            bundleSig: cachedBundleSig || null,
             routeHits
           })
         );
@@ -905,8 +907,21 @@ const WATCHED_FILES = {
   zhDict: path.join(REPO_DIR, 'i18n', 'zh-CN.json'),
   zhRuntime: path.join(REPO_DIR, 'i18n', 'i18n-runtime.js'),
   themeI18n: path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'core', 'i18n.json'),
+  themeUserConfig: path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'user', 'config.json'),
   modulesCfg: path.join(STATE_DIR, 'modules.json')
 };
+
+function isChuanbanI18nActive() {
+  if (process.env.AG_FORCE_VIEWER_I18N === '1') return false;
+  try {
+    const raw = readTextSafe(WATCHED_FILES.themeUserConfig, '');
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return parsed?.enabled !== false && parsed?.modules?.i18n === true;
+  } catch {
+    return false;
+  }
+}
 
 function readViewerVersion() {
   try {
@@ -996,14 +1011,19 @@ function rebuildBundleIfNeeded() {
   try {
     cfg = loadModulesConfig();
   } catch {
-    cfg = { modules: { meter: { enabled: true }, chinese: { enabled: true }, proxy: { enabled: false } } };
+    cfg = { modules: { meter: { enabled: true }, chinese: { enabled: false, language: 'en' }, proxy: { enabled: false } } };
   }
 
   const chCfg = cfg?.modules?.chinese || {};
-  const zhLanguage = normalizeClientLangFn(chCfg.language, chCfg.enabled !== false);
+  const zhLanguage = normalizeClientLangFn(chCfg.language, chCfg.enabled === true);
   const zhBrandTitle = normalizeBrandTitleFn(chCfg.brandTitle);
   const wantMeter = cfg?.modules?.meter?.enabled !== false;
-  const wantZh = chCfg.enabled !== false && zhLanguage !== 'en';
+  const chuanbanOwnsI18n = isChuanbanI18nActive();
+  const rawWantZh = chCfg.enabled === true && zhLanguage !== 'en';
+  const wantZh = chuanbanOwnsI18n ? false : rawWantZh;
+  if (chuanbanOwnsI18n && rawWantZh) {
+    appendLog('INFO', 'Chuanban i18n is active; suppressing duplicate ContextViewer i18n-runtime.js injection.');
+  }
   if (!bootZhState) {
     bootZhState = { enabled: wantZh, language: wantZh ? zhLanguage : 'en' };
   } else if (wantZh && !bootZhState.enabled) {

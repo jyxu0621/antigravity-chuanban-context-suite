@@ -15,6 +15,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const SKIP_CDP = process.argv.includes('--skip-cdp');
+const ALLOW_SUPER_TTC = process.argv.includes('--allow-super-ttc');
 
 function resolveStateDir() {
   if (process.env.AG_METER_STATE_DIR) return process.env.AG_METER_STATE_DIR;
@@ -161,11 +162,39 @@ async function probeGuardianHealth(stateDir) {
       uptimeSec: data.uptimeSec,
       rssMB: data.rssMB,
       attachedTargets: data.attachedTargets,
+      wantZh: typeof data.wantZh === 'boolean' ? data.wantZh : null,
+      bundleSig: data.bundleSig || null,
       routeHits,
       bannedRoutesZero: bannedHits.quota === 0 && bannedHits.accountsOverview === 0
     };
   } catch (err) {
     return { ok: false, reason: err?.message || String(err) };
+  }
+}
+
+function probeWindowsFonts(home) {
+  if (process.platform !== 'win32') return null;
+  const themeInstall = path.join(home, '.gemini', 'antigravity', 'chuanban-theme-repo', 'install.mjs');
+  if (!fs.existsSync(themeInstall)) return null;
+  try {
+    const res = spawnSync(process.execPath, [themeInstall, 'doctor', '--channel', 'auto', '--json'], {
+      cwd: path.dirname(themeInstall),
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 8000
+    });
+    if (res.status !== 0 && !res.stdout) return null;
+    const parsed = JSON.parse(String(res.stdout || '{}'));
+    const fonts = parsed.fonts || {};
+    return {
+      allRequiredInstalled: fonts.allRequiredInstalled ?? null,
+      sarasaSplitScInstalled: Boolean(fonts.sarasaSplitScInstalled),
+      superTtcActive: Boolean(fonts.superTtcActive),
+      orphanSuperTtcPendingReboot: Boolean(fonts.orphanSuperTtcPendingReboot),
+      superTtcWarning: fonts.superTtcWarning || null
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -358,11 +387,19 @@ async function main() {
 
   let modulesJson = null;
   try { modulesJson = JSON.parse(fs.readFileSync(modulesFile, 'utf8')); } catch {}
+  let effectiveModules = null;
+  if (viewerDir) {
+    try {
+      const { loadModulesConfig } = require(path.join(viewerDir, 'modules-config.js'));
+      effectiveModules = loadModulesConfig()?.modules || null;
+    } catch {}
+  }
   let themeCfg = null;
   try { themeCfg = JSON.parse(fs.readFileSync(themeConfig, 'utf8')); } catch {}
 
   const daemons = checkDaemons();
   const guardianHealth = await probeGuardianHealth(stateDir);
+  const windowsFonts = probeWindowsFonts(home);
   const cdp = SKIP_CDP ? { skipped: true } : await inspectLiveCdp();
 
   const themeConfigAdapted = Boolean(
@@ -377,6 +414,15 @@ async function main() {
       themeCfg.modules?.customJs !== false
   );
 
+  const chineseDisabledInDiskAndRuntime = Boolean(
+    modulesJson?.modules?.chinese?.enabled === false &&
+      String(modulesJson?.modules?.chinese?.language || '').toLowerCase() === 'en' &&
+      (effectiveModules ? effectiveModules.chinese?.enabled === false && effectiveModules.chinese?.language === 'en' : true) &&
+      guardianHealth.wantZh !== true
+  );
+
+  const superTtcOk = ALLOW_SUPER_TTC || !(windowsFonts && windowsFonts.superTtcActive === true);
+
   const staticOk =
     Boolean(viewerDir) &&
     cleanAsar !== false &&
@@ -386,9 +432,10 @@ async function main() {
     fs.existsSync(themeCustomCss) &&
     Boolean(
       modulesJson?.modules?.meter?.enabled !== false &&
-        modulesJson?.modules?.chinese?.enabled === false &&
+        chineseDisabledInDiskAndRuntime &&
         modulesJson?.modules?.proxy?.enabled === false
     ) &&
+    superTtcOk &&
     daemons.themeDaemonPids.length > 0 &&
     daemons.patchGuardianPids.length > 0 &&
     Boolean(guardianHealth.ok && guardianHealth.bannedRoutesZero);
@@ -420,6 +467,23 @@ async function main() {
         deletedOk
     );
 
+  const remediations = [];
+  if (!chineseDisabledInDiskAndRuntime) {
+    remediations.push(
+      'ContextViewer chinese module is still active or language is not "en"; re-run `node scripts/setup.mjs` to set modules.chinese.enabled=false and modules.chinese.language="en" and restart AntigravityPatchGuardian.'
+    );
+  }
+  if (!superTtcOk) {
+    remediations.push(
+      'Active 791MB Sarasa-SuperTTC.ttc detected on Windows (causes DirectWrite stalls); run `node scripts/setup.mjs` (auto-downloads Windows-Sarasa-Split-SC-TTF and retires SuperTTC) or pass `--fonts-from <split-ttf-dir> --retire-super-ttc`.'
+    );
+  }
+  if (!SKIP_CDP && cdp.found && cdp.state?.i18nBooted === true) {
+    remediations.push(
+      'Legacy ContextViewer i18n observer is still alive in the open window (window.__AGY_I18N_BOOTED__ === true); reload Antigravity window (Ctrl+Shift+R) or restart Antigravity once.'
+    );
+  }
+
   const report = {
     ok: staticOk && liveOk,
     viewerDir,
@@ -428,10 +492,13 @@ async function main() {
     themeConfigAdapted,
     themeCustomJsExists: fs.existsSync(themeCustomJs),
     themeCustomCssExists: fs.existsSync(themeCustomCss),
+    chineseDisabledInDiskAndRuntime,
     modulesState: modulesJson?.modules || null,
+    windowsFonts,
     daemons,
     guardianHealth,
-    cdp
+    cdp,
+    remediations
   };
 
   console.log(JSON.stringify(report, null, 2));

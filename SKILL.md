@@ -59,7 +59,9 @@ Optional flags:
 | --- | --- |
 | `--context-viewer-dir <dir>` | Custom path for `antigravity-context-viewer` (default: `repo-path.txt`, existing `D:\antigravity-context-viewer` on Windows, or `~/.gemini/antigravity/antigravity-context-viewer`) |
 | `--theme-repo-dir <dir>` | Custom path for `chuanban-antigravity-theme-patch` (default: `~/.gemini/antigravity/chuanban-theme-repo`) |
-| `--fonts-from <dir>` | Folder containing Chuanban fonts to pass to `install-fonts --from` |
+| `--fonts-from <dir>` | Folder containing Chuanban fonts to pass to `install-fonts --from` (auto-adds `--retire-super-ttc` on Windows if split `SarasaUiSC-*.ttf` files are detected) |
+| `--retire-super-ttc` | Explicitly pass `--retire-super-ttc` to Chuanban `install-fonts` on Windows |
+| `--skip-super-ttc-fix` | Skip automatic download/install of `Windows-Sarasa-Split-SC-TTF` when `Sarasa-SuperTTC.ttc` is active on Windows |
 | `--latest` | Apply patch against upstream `HEAD` instead of pinned commit `1ec6f3d` (`v0.8.9`) |
 | `--skip-tests` | Skip `node --test` after patching `antigravity-context-viewer` |
 | `--skip-verify` | Skip running `verify.mjs` after setup |
@@ -67,21 +69,25 @@ Optional flags:
 ### 3. Live Verification
 
 ```bash
-# Full check (files, clean official app.asar, running daemons, PatchGuardian /health, live CDP state/bridge/z-index)
+# Full check (files, clean official app.asar, running daemons, PatchGuardian /health, Windows SuperTTC check, live CDP state/bridge/z-index)
 node scripts/verify.mjs
 
 # Static + daemon + /health check only (when Antigravity desktop is closed)
 node scripts/verify.mjs --skip-cdp
+
+# Allow active Windows Sarasa-SuperTTC.ttc during verification (not recommended)
+node scripts/verify.mjs --allow-super-ttc
 ```
 
 Passing output fields in `verify.mjs`:
-- `ok: true`
+- `ok: true` and empty `remediations: []`
 - `cleanOfficialAsar !== false` (`true` when `app.asar` contains no `__AGContextMeter` marker)
 - `themeConfigAdapted: true` (`i18n: true`, `metrics: true`, `tokenAnalytics !== false`, `coldBootHealer !== false`, `zoomShortcuts !== false`, `cdpAutoRelaunch !== false`, `customCss !== false`, `customJs !== false`), `themeCustomJsExists: true`, `themeCustomCssExists: true`
-- `modulesState.meter.enabled !== false`, `modulesState.chinese.enabled === false`, and `modulesState.proxy.enabled === false`
+- `chineseDisabledInDiskAndRuntime: true` (`modules.chinese.enabled === false` AND `modules.chinese.language === "en"`, verified via `loadModulesConfig()`, plus `PatchGuardian` automatically suppressing `i18n-runtime.js` whenever Chuanban `i18n: true` is active) and `modulesState.proxy.enabled === false`
+- On Windows: `windowsFonts.superTtcActive === false` (791 MB `Sarasa-SuperTTC.ttc` retired in favor of split `SarasaUiSC`/`SarasaMonoSlabSC` TTFs)
 - Non-empty `daemons.themeDaemonPids` and `daemons.patchGuardianPids`
-- `guardianHealth.ok === true` and `guardianHealth.bannedRoutesZero === true` (zero `/quota` & `/accounts-overview` hits, low RSS typically `20–35 MB`)
-- When CDP window is open: `chuanbanVersion` present, `chuanbanI18nObserver === true`, `chuanbanTokenAnalyticsReady === true`, `chuanbanGpuCssApplied === true`, `dshBottomPillHooked === true`, `contextMeterMounted === true`, `speedBadgeMounted === true`, `speedWaitSvgMounted === true`, `speedTabMounted === true`, `i18nBooted === false`, `liveCapabilitiesOk === true`, `bridgeModulesOk === true`, `openZ === "2147483500"`, `closedZ === "20"`, `panelHeight <= 580`, and all 11 `deletedAbsent` flags `true`.
+- `guardianHealth.ok === true`, `guardianHealth.wantZh === false`, and `guardianHealth.bannedRoutesZero === true` (zero `/quota` & `/accounts-overview` hits, low RSS typically `20–35 MB`)
+- When CDP window is open: `chuanbanVersion` present, `chuanbanI18nObserver === true`, `chuanbanTokenAnalyticsReady === true`, `chuanbanGpuCssApplied === true`, `dshBottomPillHooked === true`, `contextMeterMounted === true`, `speedBadgeMounted === true`, `speedWaitSvgMounted === true`, `speedTabMounted === true`, `i18nBooted === false` (if upgrading an already-open window where legacy `i18n-runtime.js` was injected, reload once via `Ctrl+Shift+R`), `liveCapabilitiesOk === true`, `bridgeModulesOk === true`, `openZ === "2147483500"`, `closedZ === "20"`, `panelHeight <= 580`, and all 11 `deletedAbsent` flags `true`.
 
 ## Troubleshooting & Rollback
 

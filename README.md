@@ -48,7 +48,7 @@
    - 复用与极限精简（[`patches/context-viewer.patch`](patches/context-viewer.patch)）：
      - 顶栏仅保留 **`#badge`（上下文进度环 + `%`）** 与 **`#badge-speed`（`⚡ tok/s` + ELV-93 纯 SVG 等待沙漏）**，面板保留当前会话上下文、速度对比（ELV-91）、会话时间线与设置页（`max-height: min(580px, calc(100vh - 96px))`，隐藏态启用 `content-visibility: hidden`）。
      - 彻底移除冗余顶栏与面板模块：`#badge-quota` / `#panel-quota`（限额提示）、`#badge-cli` / `#cli-launch-toast`（CLI 入口）、`#badge-tokens` / `#panel-tokens`（由船板 `v5.5.3` Token Analytics 接管）、`#tab-ctx-models` / `#pane-ctx-models`、提示词增强卡片、品牌/语言卡片、外观停靠偏好卡、`ProxyNoTun`、调色抽屉及启动更新弹窗（`autoCheckUpdate = false`），并修复上游 `v0.8.9` 模板中 `#pane-ctx-settings` 多余闭合标签 `</div></div>` 的结构嵌套缺陷。
-     - 关闭 ContextViewer 重复汉化模块（`modules.chinese.enabled = false`），杜绝双 `MutationObserver` 竞争 DOM。
+     - 关闭 ContextViewer 重复汉化模块（同时将 `modules.chinese.enabled = false` 与 `modules.chinese.language = "en"` 写盘并读回校验，且 `PatchGuardian` 在检测到船板 `i18n: true` 时强制阻断 `i18n-runtime.js` 注入），三层防呆彻底杜绝双 `MutationObserver` 竞争 DOM；若从旧版热升级，重载一次窗口（`Ctrl+Shift+R`）即可释放旧窗口内存中的历史汉化闭包。
      - **渲染层深度防卡顿优化**：关闭面板时 `render()` / `syncSpeedBadgeText()` / `updateWaitOnly()` 走 O(1) 快路径（展开面板时通过 `panelRenderDirty` 立即刷新）；`resolveLatestSessionCallRecord()` 改用 16 条尾窗扫描 + 记忆化缓存；`requestPoll()` 改用 O(1) 流式状态检测与视觉签名去重（流式 `1.5s` / 闭面板空闲 `5s` / 开面板空闲 `3s` / 后台标签 `20s`）；后台标签 `tick()` 2s 节流；`hostDomObserver` 去掉 `characterData`/`attributes` 并做 `250ms` 节流 + titlebar 快路径；硬停用 `/quota`、`/accounts-overview`、`/record-calls` 与后台 15s `/token-history` 轮询（包括门控 `heatmap.js` 冷启动拉取，消除冷启动 10s CPU 与 +170 MB 内存尖峰），`/scan` 改为严格按需触发（展开底层技术审计抽屉或手动刷新时才扫描）；`ensureHostDocked()` 保持弹窗展开时的提权 `z-index`；`openGithubRepo` 通过回环桥 `/open-external` 打开。
 
 3. **超轻纯 CDP + 动态回环桥接守护**（[`assets/antigravity-patch-guardian.mjs`](assets/antigravity-patch-guardian.mjs)）
@@ -109,7 +109,9 @@ node scripts/setup.mjs
 | --- | --- |
 | `--context-viewer-dir <目录>` | 自定义 `antigravity-context-viewer` 克隆路径 |
 | `--theme-repo-dir <目录>` | 自定义 `chuanban-antigravity-theme-patch` 克隆路径（默认 `~/.gemini/antigravity/chuanban-theme-repo`） |
-| `--fonts-from <目录>` | 指定下载好的船板字体文件夹，传递给 `install-fonts --from` |
+| `--fonts-from <目录>` | 指定下载好的船板字体文件夹，传递给 `install-fonts --from`（Windows 检测到拆分版 `SarasaUiSC-*.ttf` 自动附加 `--retire-super-ttc`） |
+| `--retire-super-ttc` | Windows 显式启用 `--retire-super-ttc` 注销 791MB `Sarasa-SuperTTC.ttc` |
+| `--skip-super-ttc-fix` | Windows 检测到 `Sarasa-SuperTTC.ttc` 时跳过自动下载替换拆分版 TTF |
 | `--latest` | 跳过锁定基线 `1ec6f3d`（`v0.8.9`），尝试直接基于上游 `HEAD` 打补丁 |
 | `--skip-tests` | 跳过打补丁后的 ContextViewer 单元测试 |
 | `--skip-verify` | 安装结束时不自动执行 `verify.mjs` |

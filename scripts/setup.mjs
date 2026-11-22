@@ -22,6 +22,10 @@ const SKILL_ROOT = path.resolve(__dirname, '..');
 const UPSTREAM_THEME_REPO = 'https://github.com/Anarcadia/chuanban-antigravity-theme-patch.git';
 const UPSTREAM_VIEWER_REPO = 'https://github.com/elviscjn-cjn/antigravity-context-viewer.git';
 const VERIFIED_VIEWER_COMMIT = '1ec6f3d381e687f51846d3690c10373bb8832a92';
+const WINDOWS_SARASA_SPLIT_ZIP_URL =
+  'https://drive.usercontent.google.com/download?id=1iVVvZXtwUcDiHy42tJ25X6N-JlOf3l7A&export=download&confirm=t';
+const WINDOWS_SARASA_SPLIT_SHARE_URL =
+  'https://drive.google.com/file/d/1iVVvZXtwUcDiHy42tJ25X6N-JlOf3l7A/view?usp=sharing';
 const SUITE_PATCHED_VIEWER_FILES = new Set([
   'i18n/i18n-runtime.js',
   'src/i18n/i18n-runtime.js',
@@ -44,6 +48,8 @@ function getArg(flag, fallback = null) {
 const USE_LATEST = process.argv.includes('--latest');
 const SKIP_TESTS = process.argv.includes('--skip-tests');
 const SKIP_VERIFY = process.argv.includes('--skip-verify');
+const SKIP_SUPER_TTC_FIX = process.argv.includes('--skip-super-ttc-fix');
+const RETIRE_SUPER_TTC = process.argv.includes('--retire-super-ttc');
 const DRY_RUN = process.argv.includes('--dry-run');
 const FONTS_FROM = getArg('--fonts-from', null);
 
@@ -198,9 +204,23 @@ function configureStateAndCheckAsar(viewerDir, stateDir) {
   cfg.modules = cfg.modules || {};
   cfg.modules.meter = { ...(cfg.modules.meter || {}), enabled: true };
   // Desktop localization is owned exclusively by Chuanban v5.5.3 (1,940 keys) to avoid dual DOM MutationObservers.
-  cfg.modules.chinese = { ...(cfg.modules.chinese || {}), enabled: false, desktopOnly: true };
+  // IMPORTANT: modules-config.js derives chinese.enabled from (chinese.language === 'zh-CN'), so language MUST be set to 'en'.
+  cfg.modules.chinese = {
+    ...(cfg.modules.chinese || {}),
+    enabled: false,
+    language: 'en',
+    brandTitle: 'english',
+    desktopOnly: true
+  };
   cfg.modules.proxy = { ...(cfg.modules.proxy || {}), enabled: false };
   saveModulesConfig(cfg);
+
+  const reloaded = loadModulesConfig();
+  if (reloaded?.modules?.chinese?.enabled !== false || reloaded?.modules?.chinese?.language !== 'en') {
+    throw new Error(
+      `ContextViewer chinese module did not stay disabled after reload (enabled=${reloaded?.modules?.chinese?.enabled}, language=${reloaded?.modules?.chinese?.language})`
+    );
+  }
 
   try {
     const { findAsarPath } = require(path.join(viewerDir, 'asar-engine.js'));
@@ -229,6 +249,95 @@ function configureStateAndCheckAsar(viewerDir, stateDir) {
   }
 }
 
+function hasSplitSarasaTtfInDir(dirPath) {
+  try {
+    const stack = [dirPath];
+    while (stack.length > 0) {
+      const cur = stack.pop();
+      for (const entry of fs.readdirSync(cur, { withFileTypes: true })) {
+        if (entry.isDirectory()) {
+          stack.push(path.join(cur, entry.name));
+        } else if (/^SarasaUiSC-.*\.ttf$/i.test(entry.name)) {
+          return true;
+        }
+      }
+    }
+  } catch {}
+  return false;
+}
+
+function autoReplaceWindowsSuperTtc(themeRepoDir, themeInstall) {
+  const workDir = path.join(os.tmpdir(), `ag-sarasa-split-${process.pid}-${Date.now()}`);
+  const zipPath = path.join(workDir, 'Windows-Sarasa-Split-SC-TTF-v1.0.43.zip');
+  const extractDir = path.join(workDir, 'extracted');
+  fs.mkdirSync(extractDir, { recursive: true });
+  try {
+    console.log(
+      '      [Windows Font Fix] Active 791MB Sarasa-SuperTTC.ttc detected; downloading split Windows-Sarasa-Split-SC-TTF-v1.0.43.zip...'
+    );
+    const dl = spawnSync(
+      'curl.exe',
+      ['-fsSL', '--retry', '2', '--connect-timeout', '15', '--max-time', '240', '-o', zipPath, WINDOWS_SARASA_SPLIT_ZIP_URL],
+      { encoding: 'utf8', windowsHide: true }
+    );
+    if (dl.status !== 0 || !fs.existsSync(zipPath)) {
+      throw new Error(`curl download failed (${dl.status}): ${(dl.stderr || '').trim()}`);
+    }
+    const stat = fs.statSync(zipPath);
+    const headBuf = Buffer.alloc(4);
+    const fd = fs.openSync(zipPath, 'r');
+    try {
+      fs.readSync(fd, headBuf, 0, 4, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (stat.size < 50 * 1024 * 1024 || headBuf[0] !== 0x50 || headBuf[1] !== 0x4b) {
+      throw new Error(`Downloaded payload is not a valid split-TTF zip (${stat.size} bytes)`);
+    }
+
+    let extracted = false;
+    const tarRes = spawnSync('tar.exe', ['-xf', zipPath, '-C', extractDir], { encoding: 'utf8', windowsHide: true });
+    if (tarRes.status === 0 && hasSplitSarasaTtfInDir(extractDir)) {
+      extracted = true;
+    } else {
+      const psRes = spawnSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${extractDir.replace(/'/g, "''")}' -Force`
+        ],
+        { encoding: 'utf8', windowsHide: true }
+      );
+      extracted = psRes.status === 0 && hasSplitSarasaTtfInDir(extractDir);
+    }
+    if (!extracted) {
+      throw new Error('Failed to extract SarasaUiSC-*.ttf from downloaded archive');
+    }
+
+    runChecked(
+      process.execPath,
+      [themeInstall, 'install-fonts', '--from', extractDir, '--retire-super-ttc'],
+      { cwd: themeRepoDir }
+    );
+    console.log('      [Windows Font Fix] Installed split Sarasa SC TTFs and retired Sarasa-SuperTTC.ttc.');
+    return true;
+  } catch (err) {
+    console.warn(
+      `      [WARN] Auto SuperTTC replacement failed (${err?.message || err}).\n` +
+        `             Please download Windows-Sarasa-Split-SC-TTF-v1.0.43.zip manually from:\n` +
+        `             ${WINDOWS_SARASA_SPLIT_SHARE_URL}\n` +
+        '             then run: node scripts/setup.mjs --fonts-from <unzipped-dir> --retire-super-ttc'
+    );
+    return false;
+  } finally {
+    try {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    } catch {}
+  }
+}
+
 function installChuanbanTheme(themeRepoDir, backupDir) {
   console.log(`[3/5] Installing & adapting chuanban-antigravity-theme-patch (${themeRepoDir})...`);
   if (!fs.existsSync(path.join(themeRepoDir, '.git'))) {
@@ -243,36 +352,46 @@ function installChuanbanTheme(themeRepoDir, backupDir) {
 
   const themeInstall = path.join(themeRepoDir, 'install.mjs');
   if (FONTS_FROM) {
-    runChecked(process.execPath, [themeInstall, 'install-fonts', '--from', path.resolve(FONTS_FROM)], {
-      cwd: themeRepoDir
-    });
+    const resolvedFonts = path.resolve(FONTS_FROM);
+    const fontArgs = [themeInstall, 'install-fonts', '--from', resolvedFonts];
+    if (process.platform === 'win32' && (RETIRE_SUPER_TTC || hasSplitSarasaTtfInDir(resolvedFonts))) {
+      fontArgs.push('--retire-super-ttc');
+    }
+    runChecked(process.execPath, fontArgs, { cwd: themeRepoDir });
   }
 
-  const docRes = spawnSync(process.execPath, [themeInstall, 'doctor', '--channel', 'auto'], {
+  const docRes = spawnSync(process.execPath, [themeInstall, 'doctor', '--channel', 'auto', '--json'], {
     cwd: themeRepoDir,
     encoding: 'utf8',
     windowsHide: true
   });
   let fontsReady = null;
+  let superTtcActive = false;
   let superTtcWarning = null;
   try {
     const parsed = JSON.parse(docRes.stdout || '{}');
-    fontsReady = parsed.fontsReady ?? parsed.fonts?.allReady ?? null;
-    superTtcWarning = parsed.superTtcWarning || (parsed.superTtcActive ? 'Sarasa-SuperTTC.ttc active' : null);
+    const fonts = parsed.fonts || {};
+    fontsReady = parsed.fontsReady ?? fonts.allRequiredInstalled ?? fonts.allReady ?? null;
+    superTtcActive = Boolean(parsed.superTtcActive ?? fonts.superTtcActive);
+    superTtcWarning = parsed.superTtcWarning || fonts.superTtcWarning || (superTtcActive ? 'Sarasa-SuperTTC.ttc active' : null);
   } catch {}
   if (fontsReady === false) {
     console.warn(
       '      [HINT] Chuanban fonts (Anthropic / Sarasa) appear missing on this PC.\n' +
         '             Download from https://drive.google.com/drive/folders/1NX92SgVUqtSjWg6bt6sIJXy-cn7J_boC\n' +
-        '             and run: node install.mjs install-fonts --from <font-folder> (on Windows) or install to OS Fonts.'
+        '             and run: node scripts/setup.mjs --fonts-from <font-folder> (on Windows) or install to OS Fonts.'
     );
   }
-  if (process.platform === 'win32' && superTtcWarning) {
-    console.warn(
-      `      [HINT] Windows Sarasa-SuperTTC detected (${superTtcWarning}).\n` +
-        '             For crisp local CJK font rendering without SuperTTC fallback overhead, install the split\n' +
-        '             Windows-Sarasa-Split-SC-TTF pack and run: node install.mjs install-fonts --from <split-ttf-dir> --retire-super-ttc'
-    );
+  if (process.platform === 'win32' && superTtcActive) {
+    if (SKIP_SUPER_TTC_FIX) {
+      console.warn(
+        `      [WARN] Windows Sarasa-SuperTTC detected (${superTtcWarning}).\n` +
+          `             Download Windows-Sarasa-Split-SC-TTF-v1.0.43.zip (${WINDOWS_SARASA_SPLIT_SHARE_URL})\n` +
+          '             and run: node scripts/setup.mjs --fonts-from <split-ttf-dir> --retire-super-ttc'
+      );
+    } else {
+      autoReplaceWindowsSuperTtc(themeRepoDir, themeInstall);
+    }
   }
 
   runChecked(process.execPath, [themeInstall, 'install', '--channel', 'auto'], { cwd: themeRepoDir });
