@@ -1,5 +1,5 @@
 diff --git a/meter-renderer.js b/meter-renderer.js
-index 174c76b..a352e30 100644
+index 582fad7..b1638f5 100644
 --- a/meter-renderer.js
 +++ b/meter-renderer.js
 @@ -1409,11 +1409,11 @@
@@ -1020,7 +1020,7 @@ index 174c76b..a352e30 100644
 -        style="font-size:13px;font-weight:600;color:var(--ag-custom-token-accent,var(--ag-token-accent-default))"
 -        data-i18n="tokens.title">本机已记录用量</span>
 -      <span id="v-tokens" class="version-pill-btn" role="button" tabindex="0" title="点击跳转到版本更新与关于设置"
--        data-i18n-title="header.versionBtn.title">0.8.9</span>
+-        data-i18n-title="header.versionBtn.title">0.8.10</span>
 -    </div>
 -    <div class="panel-header-actions">
 -      <button id="theme-toggle-tokens" class="panel-icon-btn" type="button" aria-label="切换浅色/深色主题"
@@ -3009,7 +3009,7 @@ index 174c76b..a352e30 100644
          }
          if (triggerSyncEvenIfUnchanged || state.pendingFlushForceSync || anyChanged) {
            state.pendingFlushForceSync = false;
-@@ -26385,7 +24475,8 @@ var cumLockedKey = null;
+@@ -26395,7 +24485,8 @@ var cumLockedKey = null;
              }
            }
            state.sessionCallsMap.set(call.callId, effectiveCall);
@@ -3019,7 +3019,7 @@ index 174c76b..a352e30 100644
              const wm = getFinalCallWatermark(effectiveCall);
              if (hasWatermarkProgressed(wm, prevSynced)) {
                if (prevQuarantined && !hasWatermarkProgressed(wm, prevQuarantined) && getSingleCallBodyBytes(effectiveCall) > MAX_FLUSH_BATCH_BYTES) {
-@@ -26433,7 +24524,11 @@ var cumLockedKey = null;
+@@ -26443,7 +24534,11 @@ var cumLockedKey = null;
        }
  
        if (hasNewOrProgressedPending) {
@@ -3032,7 +3032,7 @@ index 174c76b..a352e30 100644
        }
        if (state.pendingFinalCalls.size > 0) {
          void flushPendingFinalCalls(wasHydrated);
-@@ -26459,11 +24554,45 @@ var cumLockedKey = null;
+@@ -26469,11 +24564,45 @@ var cumLockedKey = null;
        state.controllers.delete(controller);
        if (generation === state.generation && !state.disposed) {
          state.requestBusy = false;
@@ -3082,7 +3082,7 @@ index 174c76b..a352e30 100644
        }
      }
    }
-@@ -26516,7 +24645,14 @@ var cumLockedKey = null;
+@@ -26526,7 +24655,14 @@ var cumLockedKey = null;
        renderFiles(result.data.session);
        if (state.historyDrawerOpen) scheduleLatestCallRefresh({ allowTimelineRefresh: true });
      } catch (e) { if (generation === state.generation && !state.disposed) state.scanError = e.message; }
@@ -3098,7 +3098,7 @@ index 174c76b..a352e30 100644
    }
  
    let lastAvailableModelsSync = 0;
-@@ -28184,7 +26320,7 @@ var cumLockedKey = null;
+@@ -28194,7 +26330,7 @@ var cumLockedKey = null;
    }
  
    function scheduleQuotaAutoRefresh(delayMs = null) {
@@ -3107,7 +3107,7 @@ index 174c76b..a352e30 100644
      if (quotaAutoTimer) { clearTimeout(quotaAutoTimer); quotaAutoTimer = null; }
      const isWindowActive = host.getAttribute('data-window-active') !== 'false' && (typeof document === 'undefined' || !document.hidden);
      let interval = delayMs;
-@@ -28198,12 +26334,12 @@ var cumLockedKey = null;
+@@ -28208,12 +26344,12 @@ var cumLockedKey = null;
      quotaState.nextRefreshAtMs = Date.now() + interval;
      quotaAutoTimer = setTimeout(() => {
        quotaAutoTimer = null;
@@ -3122,7 +3122,7 @@ index 174c76b..a352e30 100644
      quotaState.autoPaused = false;
      const elapsed = quotaState.lastFetchedAtMs ? (Date.now() - quotaState.lastFetchedAtMs) : Infinity;
      if (elapsed >= 20000 && !quotaState.busy) {
-@@ -28214,17 +26350,17 @@ var cumLockedKey = null;
+@@ -28224,17 +26360,17 @@ var cumLockedKey = null;
    }
  
    function onQuotaWindowBlur() {
@@ -3143,7 +3143,7 @@ index 174c76b..a352e30 100644
          void syncQuotaFromHost(true);
        }
      }, 1500);
-@@ -28262,7 +26398,7 @@ var cumLockedKey = null;
+@@ -28272,7 +26408,7 @@ var cumLockedKey = null;
    }
  
    async function syncQuotaFromHost(force = false, meta = {}) {
@@ -3152,7 +3152,7 @@ index 174c76b..a352e30 100644
      if (quotaInFlightPromise) {
        return quotaInFlightPromise;
      }
-@@ -28930,7 +27066,7 @@ var cumLockedKey = null;
+@@ -28940,7 +27076,7 @@ var cumLockedKey = null;
    }
  
    async function refreshAccountsOverview({ silent = true, refreshAllRemote = false } = {}) {
@@ -3161,7 +3161,7 @@ index 174c76b..a352e30 100644
      try {
        const hasIpc = typeof window !== 'undefined' && typeof window.contextMeterAPI?.getAccountsOverview === 'function';
        const hasLive = hasLiveHttpBridge() && hasLiveRouteCapability('/accounts-overview');
-@@ -29165,6 +27301,7 @@ var cumLockedKey = null;
+@@ -29175,6 +27311,7 @@ var cumLockedKey = null;
    }
    renderQuotaBoard();
  
@@ -3169,7 +3169,7 @@ index 174c76b..a352e30 100644
    let quotaTickCounter = 0;
    let hasTriggeredInitialQuotaSync = false;
    function tick() {
-@@ -29172,11 +27309,17 @@ var cumLockedKey = null;
+@@ -29182,11 +27319,17 @@ var cumLockedKey = null;
        earlyForceDispose();
        return;
      }
@@ -3188,7 +3188,7 @@ index 174c76b..a352e30 100644
        for (const controller of state.controllers) controller.abort(); state.controllers.clear(); state.generation++;
        if (timelineFetchController) {
          try { timelineFetchController.abort(); } catch { }
-@@ -29187,41 +27330,55 @@ var cumLockedKey = null;
+@@ -29197,41 +27340,55 @@ var cumLockedKey = null;
        clearLivePendingRequestWait();
        if (state.sessionCallsMap) state.sessionCallsMap.clear();
        if (state.expandedTurnKeys) state.expandedTurnKeys.clear();
@@ -3258,7 +3258,7 @@ index 174c76b..a352e30 100644
      }
      quotaTickCounter = (quotaTickCounter + 1) % 2;
 diff --git a/meter-renderer.test.js b/meter-renderer.test.js
-index d0ad850..2ff6fe3 100644
+index 3d2c029..31c0aae 100644
 --- a/meter-renderer.test.js
 +++ b/meter-renderer.test.js
 @@ -2174,11 +2174,13 @@ test('0.8.3 UI & restart & i18n regression: model selector moved into tab, detai
@@ -3393,7 +3393,7 @@ index 76a448f..77c2f1d 100644
    // 统一生成徽章、悬浮提示与速览卡片的状态数据
    function resolveDisplayStatus(d, session) {
 diff --git a/src/renderer/main.js b/src/renderer/main.js
-index 762e9ee..0cff2dc 100644
+index a8f617f..9a3e197 100644
 --- a/src/renderer/main.js
 +++ b/src/renderer/main.js
 @@ -235,7 +235,7 @@
@@ -4022,7 +4022,7 @@ index 762e9ee..0cff2dc 100644
          }
          if (triggerSyncEvenIfUnchanged || state.pendingFlushForceSync || anyChanged) {
            state.pendingFlushForceSync = false;
-@@ -12941,7 +13126,8 @@
+@@ -12951,7 +13136,8 @@
              }
            }
            state.sessionCallsMap.set(call.callId, effectiveCall);
@@ -4032,7 +4032,7 @@ index 762e9ee..0cff2dc 100644
              const wm = getFinalCallWatermark(effectiveCall);
              if (hasWatermarkProgressed(wm, prevSynced)) {
                if (prevQuarantined && !hasWatermarkProgressed(wm, prevQuarantined) && getSingleCallBodyBytes(effectiveCall) > MAX_FLUSH_BATCH_BYTES) {
-@@ -12989,7 +13175,11 @@
+@@ -12999,7 +13185,11 @@
        }
  
        if (hasNewOrProgressedPending) {
@@ -4045,7 +4045,7 @@ index 762e9ee..0cff2dc 100644
        }
        if (state.pendingFinalCalls.size > 0) {
          void flushPendingFinalCalls(wasHydrated);
-@@ -13015,11 +13205,45 @@
+@@ -13025,11 +13215,45 @@
        state.controllers.delete(controller);
        if (generation === state.generation && !state.disposed) {
          state.requestBusy = false;
@@ -4095,7 +4095,7 @@ index 762e9ee..0cff2dc 100644
        }
      }
    }
-@@ -13072,7 +13296,14 @@
+@@ -13082,7 +13306,14 @@
        renderFiles(result.data.session);
        if (state.historyDrawerOpen) scheduleLatestCallRefresh({ allowTimelineRefresh: true });
      } catch (e) { if (generation === state.generation && !state.disposed) state.scanError = e.message; }
@@ -4111,7 +4111,7 @@ index 762e9ee..0cff2dc 100644
    }
  
    let lastAvailableModelsSync = 0;
-@@ -14740,7 +14971,7 @@
+@@ -14750,7 +14981,7 @@
    }
  
    function scheduleQuotaAutoRefresh(delayMs = null) {
@@ -4120,7 +4120,7 @@ index 762e9ee..0cff2dc 100644
      if (quotaAutoTimer) { clearTimeout(quotaAutoTimer); quotaAutoTimer = null; }
      const isWindowActive = host.getAttribute('data-window-active') !== 'false' && (typeof document === 'undefined' || !document.hidden);
      let interval = delayMs;
-@@ -14754,12 +14985,12 @@
+@@ -14764,12 +14995,12 @@
      quotaState.nextRefreshAtMs = Date.now() + interval;
      quotaAutoTimer = setTimeout(() => {
        quotaAutoTimer = null;
@@ -4135,7 +4135,7 @@ index 762e9ee..0cff2dc 100644
      quotaState.autoPaused = false;
      const elapsed = quotaState.lastFetchedAtMs ? (Date.now() - quotaState.lastFetchedAtMs) : Infinity;
      if (elapsed >= 20000 && !quotaState.busy) {
-@@ -14770,17 +15001,17 @@
+@@ -14780,17 +15011,17 @@
    }
  
    function onQuotaWindowBlur() {
@@ -4156,7 +4156,7 @@ index 762e9ee..0cff2dc 100644
          void syncQuotaFromHost(true);
        }
      }, 1500);
-@@ -14818,7 +15049,7 @@
+@@ -14828,7 +15059,7 @@
    }
  
    async function syncQuotaFromHost(force = false, meta = {}) {
@@ -4165,7 +4165,7 @@ index 762e9ee..0cff2dc 100644
      if (quotaInFlightPromise) {
        return quotaInFlightPromise;
      }
-@@ -15486,7 +15717,7 @@
+@@ -15496,7 +15727,7 @@
    }
  
    async function refreshAccountsOverview({ silent = true, refreshAllRemote = false } = {}) {
@@ -4174,7 +4174,7 @@ index 762e9ee..0cff2dc 100644
      try {
        const hasIpc = typeof window !== 'undefined' && typeof window.contextMeterAPI?.getAccountsOverview === 'function';
        const hasLive = hasLiveHttpBridge() && hasLiveRouteCapability('/accounts-overview');
-@@ -15721,6 +15952,7 @@
+@@ -15731,6 +15962,7 @@
    }
    renderQuotaBoard();
  
@@ -4182,7 +4182,7 @@ index 762e9ee..0cff2dc 100644
    let quotaTickCounter = 0;
    let hasTriggeredInitialQuotaSync = false;
    function tick() {
-@@ -15728,11 +15960,17 @@
+@@ -15738,11 +15970,17 @@
        earlyForceDispose();
        return;
      }
@@ -4201,7 +4201,7 @@ index 762e9ee..0cff2dc 100644
        for (const controller of state.controllers) controller.abort(); state.controllers.clear(); state.generation++;
        if (timelineFetchController) {
          try { timelineFetchController.abort(); } catch { }
-@@ -15743,41 +15981,55 @@
+@@ -15753,41 +15991,55 @@
        clearLivePendingRequestWait();
        if (state.sessionCallsMap) state.sessionCallsMap.clear();
        if (state.expandedTurnKeys) state.expandedTurnKeys.clear();
@@ -4290,7 +4290,7 @@ index 9bed003..7e03320 100644
      /* 视图内平滑交叉淡入淡出（避免直接 display 硬切导致内容跳闪） */
      @keyframes agFadeIn{
 diff --git a/src/renderer/template.html b/src/renderer/template.html
-index 21c04b9..f94d1a9 100644
+index 3e5adc8..f94d1a9 100644
 --- a/src/renderer/template.html
 +++ b/src/renderer/template.html
 @@ -1,19 +1,3 @@
@@ -5229,7 +5229,7 @@ index 21c04b9..f94d1a9 100644
 -        style="font-size:13px;font-weight:600;color:var(--ag-custom-token-accent,var(--ag-token-accent-default))"
 -        data-i18n="tokens.title">本机已记录用量</span>
 -      <span id="v-tokens" class="version-pill-btn" role="button" tabindex="0" title="点击跳转到版本更新与关于设置"
--        data-i18n-title="header.versionBtn.title">0.8.9</span>
+-        data-i18n-title="header.versionBtn.title">0.8.10</span>
 -    </div>
 -    <div class="panel-header-actions">
 -      <button id="theme-toggle-tokens" class="panel-icon-btn" type="button" aria-label="切换浅色/深色主题"

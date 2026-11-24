@@ -1,8 +1,10 @@
 {
   "enabled": true,
   "channel": "auto",
-  "preset": "high-contrast",
+  "preset": "morandi",
   "darkPreset": "onyx",
+  "installedLocale": "zh-CN",
+  "metricsMode": "full",
   "contextLimit": 256000,
   "allowedOrigins": [
     "https://127.0.0.1",

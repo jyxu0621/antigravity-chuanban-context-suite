@@ -181,7 +181,7 @@ function probeWindowsFonts(home) {
       cwd: path.dirname(themeInstall),
       encoding: 'utf8',
       windowsHide: true,
-      timeout: 8000
+      timeout: 18000
     });
     if (res.status !== 0 && !res.stdout) return null;
     const parsed = JSON.parse(String(res.stdout || '{}'));
@@ -191,7 +191,8 @@ function probeWindowsFonts(home) {
       sarasaSplitScInstalled: Boolean(fonts.sarasaSplitScInstalled),
       superTtcActive: Boolean(fonts.superTtcActive),
       orphanSuperTtcPendingReboot: Boolean(fonts.orphanSuperTtcPendingReboot),
-      superTtcWarning: fonts.superTtcWarning || null
+      superTtcWarning: fonts.superTtcWarning || null,
+      unregisteredWarning: fonts.unregisteredWarning || null
     };
   } catch {
     return null;

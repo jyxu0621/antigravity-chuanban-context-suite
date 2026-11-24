@@ -1,7 +1,8 @@
 /**
- * user/custom.js — 船板 v5.5.3 + ContextViewer v0.8.9 协同扩展
- * 1. 底部输入框胶囊（DSH Harness 风格）：格式化船板原生 #ag-live-metrics-pill 为
- *    `入 <used>/<limit> (<pct>%) · 出 <out> · <tps> tok/s · 首字 <ttft>`（保留原生悬停详情卡）
+ * user/custom.js — 船板 v6.0.2 + ContextViewer v0.8.10 协同扩展
+ * 1. 底部输入框胶囊（DSH Harness 风格）：在 metricsMode="full" 时格式化船板原生 #ag-live-metrics-pill 为
+ *    `入 <used>/<limit> (<pct>%) · 出 <out> · <tps> tok/s · 首字 <ttft>`（保留原生悬停详情卡）；
+ *    若用户切至 v6.0.2 compact 圆环模式（ag-ctx-ring）则无损透传原生紧凑胶囊
  * 2. 右上角 ContextViewer (#ag-context-meter) 最高层叠与原生 WebContentsView 穿透避让
  *    （弹窗打开时提权至 z-index: 2147483500 并通知 wcvBrowser.setPortalOverlayOpen，关闭时无损恢复）
  */
@@ -79,6 +80,10 @@
   function transformPayloadForBottom(payload) {
     if (!payload || !payload.hasData || !payload.inlineHtml) return payload;
     if (payload.__agDshFormatted) return payload;
+    // 兼容船板 v6.0.0+ compact 紧凑圆环模式：含 ag-ctx-ring 且不含 Ctx 时直接透传原生紧凑胶囊
+    if (String(payload.inlineHtml).includes('ag-ctx-ring') && !/\bCtx\b/i.test(String(payload.inlineHtml))) {
+      return payload;
+    }
     const parsed = parseMetricsPayload(payload);
     if (!parsed) return payload;
     return Object.assign({}, payload, {

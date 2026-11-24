@@ -21,7 +21,7 @@ const SKILL_ROOT = path.resolve(__dirname, '..');
 
 const UPSTREAM_THEME_REPO = 'https://github.com/Anarcadia/chuanban-antigravity-theme-patch.git';
 const UPSTREAM_VIEWER_REPO = 'https://github.com/elviscjn-cjn/antigravity-context-viewer.git';
-const VERIFIED_VIEWER_COMMIT = '1ec6f3d381e687f51846d3690c10373bb8832a92';
+const VERIFIED_VIEWER_COMMIT = 'ab5a41b7d515643fbbdd9dde8dc940e520a131b0';
 const WINDOWS_SARASA_SPLIT_ZIP_URL =
   'https://drive.usercontent.google.com/download?id=1iVVvZXtwUcDiHy42tJ25X6N-JlOf3l7A&export=download&confirm=t';
 const WINDOWS_SARASA_SPLIT_SHARE_URL =
@@ -183,7 +183,8 @@ function ensureViewerRepoAndPatch(viewerDir, stateDir) {
       ...(fs.existsSync(path.join(viewerDir, 'meter-v083-fixes.test.js')) ? ['meter-v083-fixes.test.js'] : []),
       ...(fs.existsSync(path.join(viewerDir, 'meter-hotload.test.js')) ? ['meter-hotload.test.js'] : []),
       ...(fs.existsSync(path.join(viewerDir, 'meter-elv91-speed.test.js')) ? ['meter-elv91-speed.test.js'] : []),
-      ...(fs.existsSync(path.join(viewerDir, 'meter-v089-usage.test.js')) ? ['meter-v089-usage.test.js'] : [])
+      ...(fs.existsSync(path.join(viewerDir, 'meter-v089-usage.test.js')) ? ['meter-v089-usage.test.js'] : []),
+      ...(fs.existsSync(path.join(viewerDir, 'meter-v234-compat.test.js')) ? ['meter-v234-compat.test.js'] : [])
     ];
     console.log(`      Running unit tests (${testFiles.map((f) => f.replace(/\.test\.js$/, '')).join(', ')})...`);
     runChecked(
@@ -338,6 +339,71 @@ function autoReplaceWindowsSuperTtc(themeRepoDir, themeInstall) {
   }
 }
 
+function tryChuanbanAutoDownloadFonts(themeRepoDir, themeInstall, { retireSuperTtc = false } = {}) {
+  try {
+    const srcText = fs.readFileSync(themeInstall, 'utf8');
+    if (!srcText.includes('--auto-download')) return false;
+  } catch {
+    return false;
+  }
+  const args = [themeInstall, 'install-fonts', '--auto-download'];
+  if (process.platform === 'win32' && retireSuperTtc) {
+    args.push('--retire-super-ttc');
+  }
+  console.log(`      [Chuanban v6.0.2+ Auto-Font] Running: node install.mjs ${args.slice(1).join(' ')}`);
+  const res = spawnSync(process.execPath, args, {
+    cwd: themeRepoDir,
+    stdio: 'inherit',
+    windowsHide: true
+  });
+  return res.status === 0;
+}
+
+function mergeChuanbanUserConfig(srcCfgPath, dstCfgPath, preExisting = null) {
+  const templateCfg = JSON.parse(fs.readFileSync(srcCfgPath, 'utf8'));
+  let existing = preExisting;
+  if (!existing) {
+    try {
+      if (fs.existsSync(dstCfgPath)) {
+        existing = JSON.parse(fs.readFileSync(dstCfgPath, 'utf8'));
+      }
+    } catch {}
+  }
+  const VALID_LIGHT_PRESETS = new Set(['native', 'morandi', 'absolutely', 'claude-desktop-purewhite', 'vintage-deep']);
+  const VALID_DARK_PRESETS = new Set(['onyx', 'claude-warm']);
+  const merged = {
+    ...templateCfg,
+    ...(existing && typeof existing === 'object' ? existing : {}),
+    preset:
+      existing && VALID_LIGHT_PRESETS.has(existing.preset)
+        ? existing.preset
+        : templateCfg.preset,
+    darkPreset:
+      existing && VALID_DARK_PRESETS.has(existing.darkPreset)
+        ? existing.darkPreset
+        : templateCfg.darkPreset,
+    installedLocale:
+      existing && (existing.installedLocale === 'en' || existing.installedLocale === 'zh-CN')
+        ? existing.installedLocale
+        : templateCfg.installedLocale,
+    metricsMode:
+      existing && (existing.metricsMode === 'full' || existing.metricsMode === 'compact')
+        ? existing.metricsMode
+        : templateCfg.metricsMode,
+    allowedOrigins: Array.from(
+      new Set([
+        ...(Array.isArray(templateCfg.allowedOrigins) ? templateCfg.allowedOrigins : []),
+        ...(Array.isArray(existing?.allowedOrigins) ? existing.allowedOrigins : [])
+      ])
+    ),
+    modules: {
+      ...(existing?.modules && typeof existing.modules === 'object' ? existing.modules : {}),
+      ...(templateCfg.modules || {})
+    }
+  };
+  return Buffer.from(`${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+}
+
 function installChuanbanTheme(themeRepoDir, backupDir) {
   console.log(`[3/5] Installing & adapting chuanban-antigravity-theme-patch (${themeRepoDir})...`);
   if (!fs.existsSync(path.join(themeRepoDir, '.git'))) {
@@ -375,39 +441,51 @@ function installChuanbanTheme(themeRepoDir, backupDir) {
     superTtcActive = Boolean(parsed.superTtcActive ?? fonts.superTtcActive);
     superTtcWarning = parsed.superTtcWarning || fonts.superTtcWarning || (superTtcActive ? 'Sarasa-SuperTTC.ttc active' : null);
   } catch {}
-  if (fontsReady === false) {
-    console.warn(
-      '      [HINT] Chuanban fonts (Anthropic / Sarasa) appear missing on this PC.\n' +
-        '             Download from https://drive.google.com/drive/folders/1NX92SgVUqtSjWg6bt6sIJXy-cn7J_boC\n' +
-        '             and run: node scripts/setup.mjs --fonts-from <font-folder> (on Windows) or install to OS Fonts.'
-    );
-  }
   if (process.platform === 'win32' && superTtcActive) {
     if (SKIP_SUPER_TTC_FIX) {
       console.warn(
         `      [WARN] Windows Sarasa-SuperTTC detected (${superTtcWarning}).\n` +
-          `             Download Windows-Sarasa-Split-SC-TTF-v1.0.43.zip (${WINDOWS_SARASA_SPLIT_SHARE_URL})\n` +
-          '             and run: node scripts/setup.mjs --fonts-from <split-ttf-dir> --retire-super-ttc'
+          `             Run: node ${JSON.stringify(themeInstall)} install-fonts --auto-download --retire-super-ttc`
       );
     } else {
-      autoReplaceWindowsSuperTtc(themeRepoDir, themeInstall);
+      const okNative = tryChuanbanAutoDownloadFonts(themeRepoDir, themeInstall, { retireSuperTtc: true });
+      if (!okNative) {
+        autoReplaceWindowsSuperTtc(themeRepoDir, themeInstall);
+      }
+    }
+  } else if (fontsReady === false && !SKIP_SUPER_TTC_FIX) {
+    const okNative = tryChuanbanAutoDownloadFonts(themeRepoDir, themeInstall, { retireSuperTtc: false });
+    if (!okNative) {
+      console.warn(
+        '      [HINT] Chuanban fonts (Anthropic / Sarasa) appear missing on this PC.\n' +
+          '             Download from https://drive.google.com/drive/folders/1NX92SgVUqtSjWg6bt6sIJXy-cn7J_boC\n' +
+          '             and run: node scripts/setup.mjs --fonts-from <font-folder-or-zip>'
+      );
     }
   }
 
+  const userDir = path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'user');
+  const dstCfg = path.join(userDir, 'config.json');
+  let preExistingUserCfg = null;
+  try {
+    if (fs.existsSync(dstCfg)) {
+      preExistingUserCfg = JSON.parse(fs.readFileSync(dstCfg, 'utf8'));
+    }
+  } catch {}
+
   runChecked(process.execPath, [themeInstall, 'install', '--channel', 'auto'], { cwd: themeRepoDir });
 
-  const userDir = path.join(os.homedir(), '.gemini', 'antigravity', 'theme-patch', 'user');
   fs.mkdirSync(userDir, { recursive: true });
   const srcCfg = path.join(SKILL_ROOT, 'assets', 'theme-user-config.json');
   const srcJs = path.join(SKILL_ROOT, 'assets', 'theme-user-custom.js');
   const srcCss = path.join(SKILL_ROOT, 'assets', 'theme-user-custom.css');
-  const dstCfg = path.join(userDir, 'config.json');
   const dstJs = path.join(userDir, 'custom.js');
   const dstCss = path.join(userDir, 'custom.css');
 
-  backupIfDifferent(dstCfg, fs.readFileSync(srcCfg), backupDir);
+  const mergedCfgBuf = mergeChuanbanUserConfig(srcCfg, dstCfg, preExistingUserCfg);
+  backupIfDifferent(dstCfg, mergedCfgBuf, backupDir);
   backupIfDifferent(dstJs, fs.readFileSync(srcJs), backupDir);
-  fs.copyFileSync(srcCfg, dstCfg);
+  fs.writeFileSync(dstCfg, mergedCfgBuf);
   fs.copyFileSync(srcJs, dstJs);
   if (fs.existsSync(srcCss)) {
     backupIfDifferent(dstCss, fs.readFileSync(srcCss), backupDir);
@@ -598,41 +676,51 @@ function registerWindowsLogonVbsTask(taskName, vbsPath, regRunName, { repeatInte
 
 function stopExistingGuardian(stateDir) {
   const pidFile = path.join(stateDir, 'patch-guardian.pid');
+  const candidatePids = new Set();
   try {
-    if (!fs.existsSync(pidFile)) return;
-    const oldPid = Number.parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
-    if (!Number.isInteger(oldPid) || oldPid <= 0 || oldPid === process.pid) {
-      try { fs.unlinkSync(pidFile); } catch {}
-      return;
+    if (fs.existsSync(pidFile)) {
+      const oldPid = Number.parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+      if (Number.isInteger(oldPid) && oldPid > 0 && oldPid !== process.pid) {
+        candidatePids.add(oldPid);
+      }
     }
-    let alive = true;
+  } catch {}
+
+  try {
+    if (process.platform === 'win32') {
+      const scan = spawnSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { $_.CommandLine -match 'antigravity-patch-guardian' -and $_.CommandLine -notmatch '(setup|verify)\\.mjs' } | ForEach-Object { $_.ProcessId }"
+        ],
+        { encoding: 'utf8', windowsHide: true, timeout: 4000 }
+      );
+      for (const line of String(scan.stdout || '').split(/\r?\n/)) {
+        const p = Number.parseInt(line.trim(), 10);
+        if (Number.isInteger(p) && p > 0 && p !== process.pid) candidatePids.add(p);
+      }
+    } else {
+      const scan = spawnSync('ps', ['-ax', '-o', 'pid=,args='], { encoding: 'utf8', timeout: 3000 });
+      for (const line of String(scan.stdout || '').split(/\r?\n/)) {
+        if (!line.includes('antigravity-patch-guardian') || line.includes('setup.mjs') || line.includes('verify.mjs')) continue;
+        const p = Number.parseInt(line.trim().split(/\s+/)[0], 10);
+        if (Number.isInteger(p) && p > 0 && p !== process.pid) candidatePids.add(p);
+      }
+    }
+  } catch {}
+
+  for (const oldPid of candidatePids) {
     try {
       process.kill(oldPid, 0);
     } catch (err) {
-      if (!err || err.code !== 'EPERM') alive = false;
+      if (!err || err.code !== 'EPERM') continue;
     }
-    if (!alive) {
-      try { fs.unlinkSync(pidFile); } catch {}
-      return;
-    }
-    if (process.platform === 'win32') {
-      const probe = spawnSync(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId = ${oldPid}" -ErrorAction SilentlyContinue).CommandLine`],
-        { encoding: 'utf8', windowsHide: true, timeout: 4000 }
-      );
-      if (!String(probe.stdout || '').includes('antigravity-patch-guardian')) {
-        try { fs.unlinkSync(pidFile); } catch {}
-        return;
-      }
-    } else {
-      const probe = spawnSync('ps', ['-p', String(oldPid), '-o', 'args='], { encoding: 'utf8', timeout: 3000 });
-      if (!String(probe.stdout || '').includes('antigravity-patch-guardian')) {
-        try { fs.unlinkSync(pidFile); } catch {}
-        return;
-      }
-    }
-    process.kill(oldPid, 'SIGTERM');
+    try {
+      process.kill(oldPid, 'SIGTERM');
+    } catch {}
     const deadline = Date.now() + 1000;
     while (Date.now() < deadline) {
       try {
@@ -642,11 +730,10 @@ function stopExistingGuardian(stateDir) {
         break;
       }
     }
-    try {
-      if (fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').trim() === String(oldPid)) {
-        fs.unlinkSync(pidFile);
-      }
-    } catch {}
+  }
+
+  try {
+    if (fs.existsSync(pidFile)) fs.unlinkSync(pidFile);
   } catch {}
 }
 
@@ -669,7 +756,7 @@ function waitForLiveGuardianPid(stateDir, maxWaitMs = 4500) {
 }
 
 function deployGuardianAndAutostart(stateDir, backupDir) {
-  console.log('[4/5] Deploying ContextMeter v0.8.9 (slim) + Chuanban v5.5.3 (Antigravity 2.34.0+) CDP daemon & OS autostart...');
+  console.log('[4/5] Deploying ContextMeter v0.8.10 (slim) + Chuanban v6.0.2 (Antigravity 2.34.0+) CDP daemon & OS autostart...');
   const scriptsDir = path.join(os.homedir(), '.gemini', 'antigravity', 'scripts');
   fs.mkdirSync(scriptsDir, { recursive: true });
 

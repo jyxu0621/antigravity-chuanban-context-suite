@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-**仿Claude风格的antigravity反重力美化插件**：面向 Google Antigravity 2.x（已实测适配最新 `2.34.0+`），将 **船板暖纸主题 `v5.5.3`**（`1,940` 条单一汉化引擎、底部 DSH 风格实时胶囊、原生设置页 Token Analytics、高刷屏 GPU 动画减负 CSS 与 `2.33/2.34` 单图标 `M1+M2` CDP 接力）与 **极限精简零卡顿版 ContextViewer `v0.8.9`**（顶栏仅保留上下文进度环 + 输出速度纯 SVG 沙漏胶囊，彻底根除后台卡顿与内存飙升）通过纯 CDP + 超轻本地回环 HTTP 守护进程融合运行，**零修改官方 `app.asar`**，重启、重载窗口或客户端升级后自动重新生效。
+**仿Claude风格的antigravity反重力美化插件**：面向 Google Antigravity 2.x（已实测适配最新 `2.34.0+`），将 **船板暖纸主题 `v6.0.2`**（消除 `body:has()` 全树重算 `40ms -> 2.2ms`、`#ag-font-faces` 永久隔离、2300x 5 槽位主题与 `[EN | 中文]` 免重注切换、代理感知自动下载字体、单一 `1,940` 词条汉化引擎、底部 DSH 风格实时胶囊、原生设置页 Token Analytics、高刷屏 GPU 动画减负 CSS）与 **极限精简零卡顿版 ContextViewer `v0.8.10`**（含 Antigravity `2.34.0` CSRF 鉴权与窗口加载器修复，顶栏仅保留上下文进度环 + 输出速度纯 SVG 沙漏胶囊，彻底根除后台卡顿与内存飙升）通过纯 CDP + 超轻本地回环 HTTP 守护进程融合运行，**零修改官方 `app.asar`**，重启、重载窗口或客户端升级后自动重新生效。
 
 ---
 
@@ -37,14 +37,14 @@
 
 本仓库整合、分工并深度优化了两个开源社区项目，避免双观察器冲突与后台资源风暴：
 
-1. **[Anarcadia/chuanban-antigravity-theme-patch](https://github.com/Anarcadia/chuanban-antigravity-theme-patch)**（船板主题补丁，已验证至 `v5.5.3` / `0aec663`）
-   - 复用与职责：全权负责暖纸/深色主题视觉、`Google Sans Flex` × 更纱黑体排版（Windows 建议配合独立拆分 `Windows-Sarasa-Split-SC-TTF` + `--retire-super-ttc` 消除 `SuperTTC` 回退延迟）、**单一 `1,940` 词条桌面汉化引擎**（`i18n: true`）、底部实时指标胶囊（`metrics: true`）、原生设置页 **Token Analytics**（`tokenAnalytics: true`）、Antigravity `2.33/2.34+` 单图标 `M1+M2` CDP 接力与 `cdpAutoRelaunch`、`plugin://swarm--` 子帧实时主题同步、宿主指纹门禁及 Windows ME SDDL 计划任务。
+1. **[Anarcadia/chuanban-antigravity-theme-patch](https://github.com/Anarcadia/chuanban-antigravity-theme-patch)**（船板主题补丁，已验证至 `v6.0.2`）
+   - 复用与职责：全权负责暖纸/莫兰迪/深色 5 槽位主题视觉与 `[EN | 中文]` 免重注切换、消除 `body:has()` 全树样式重算（`40ms -> 2.2ms`）、`#ag-font-faces` 永久隔离、2300x `style.disabled` 原生切换、`Google Sans Flex` × 更纱黑体排版（内置 `v6.0.2` 代理感知 `install-fonts --auto-download --retire-super-ttc` 与 Windows UTF-16 原生注册表写入）、**单一 `1,940` 词条桌面汉化引擎**（`i18n: true`）、新会话自愈底部实时指标胶囊（`metrics: true`, `metricsMode: "full"`）、原生设置页 **Token Analytics**（`tokenAnalytics: true`）、Antigravity `2.33/2.34+` 单图标 `M1+M2` CDP 接力与 `cdpAutoRelaunch`、`plugin://swarm--` 子帧实时主题同步、宿主指纹门禁及 Windows ME SDDL `TimeTrigger` 5 分钟保活计划任务。
    - 本仓库定制（[`assets/theme-user-config.json`](assets/theme-user-config.json)、[`assets/theme-user-custom.js`](assets/theme-user-custom.js)、[`assets/theme-user-custom.css`](assets/theme-user-custom.css)）：
-     - **DSH Harness 风格底部胶囊**：通过事件驱动包装 `window.__ag_render_metrics`（零额外定时器、`ctx.onCleanup` 无泄漏回收），将底部 `#ag-live-metrics-pill` 格式化为 `入 <used>/<limit> (<pct>%) · 出 <out> · <tps> tok/s · 首字 <ttft>`，完整保留原生悬停详情卡。
+     - **DSH Harness 风格底部胶囊**：通过事件驱动包装 `window.__ag_render_metrics`（零额外定时器、`ctx.onCleanup` 无泄漏回收），在 `metricsMode: "full"` 时将底部 `#ag-live-metrics-pill` 格式化为 `入 <used>/<limit> (<pct>%) · 出 <out> · <tps> tok/s · 首字 <ttft>`，完整保留原生悬停详情卡；若用户手动切至 `v6.0.0+` `compact` 圆环模式则自动无损透传。
      - **高刷屏 GPU 合成减负 CSS（`theme-user-custom.css`）**：关闭侧边栏 12 组 `[data-agent-state-dot]` / `agentStateDot` 144Hz 空转脉动、`.shimmer-text-mask/.shimmer-text-content` 流光蒙版重绘、流式逐词 `span[style*="fade-in"]` WAAPI 残留动画、装饰性 `.animate-pulse/.animate-ping/.animate-bounce` 与大面积 `[class*="backdrop-blur"]` 毛玻璃，同时保留全部悬停/点击交互反馈。
      - **弹窗最高层叠与原生视图穿透避让**：上下文弹窗 `#panel` 展开时自动将 `#ag-context-meter` 及层叠祖先提权至 `z-index: 2147483500` 并通知 `wcvBrowser.setPortalOverlayOpen(true)`（关闭后无损还原）；监听宿主父节点 `childList` 与捕获阶段点击事件，保底重连间隔放宽至 `15s`。
 
-2. **[elviscjn-cjn/antigravity-context-viewer](https://github.com/elviscjn-cjn/antigravity-context-viewer)**（锁定已验证基线 `v0.8.9` / `1ec6f3d381e687f51846d3690c10373bb8832a92`）
+2. **[elviscjn-cjn/antigravity-context-viewer](https://github.com/elviscjn-cjn/antigravity-context-viewer)**（锁定已验证基线 `v0.8.10` / `ab5a41b7d515643fbbdd9dde8dc940e520a131b0`，含 Antigravity `2.34.0` CSRF 鉴权与窗口加载器修复，理性跳过重型 `v0.9.x` 大仪表盘重构）
    - 复用与极限精简（[`patches/context-viewer.patch`](patches/context-viewer.patch)）：
      - 顶栏仅保留 **`#badge`（上下文进度环 + `%`）** 与 **`#badge-speed`（`⚡ tok/s` + ELV-93 纯 SVG 等待沙漏）**，面板保留当前会话上下文、速度对比（ELV-91）、会话时间线与设置页（`max-height: min(580px, calc(100vh - 96px))`，隐藏态启用 `content-visibility: hidden`）。
      - 彻底移除冗余顶栏与面板模块：`#badge-quota` / `#panel-quota`（限额提示）、`#badge-cli` / `#cli-launch-toast`（CLI 入口）、`#badge-tokens` / `#panel-tokens`（由船板 `v5.5.3` Token Analytics 接管）、`#tab-ctx-models` / `#pane-ctx-models`、提示词增强卡片、品牌/语言卡片、外观停靠偏好卡、`ProxyNoTun`、调色抽屉及启动更新弹窗（`autoCheckUpdate = false`），并修复上游 `v0.8.9` 模板中 `#pane-ctx-settings` 多余闭合标签 `</div></div>` 的结构嵌套缺陷。
@@ -112,7 +112,7 @@ node scripts/setup.mjs
 | `--fonts-from <目录>` | 指定下载好的船板字体文件夹，传递给 `install-fonts --from`（Windows 检测到拆分版 `SarasaUiSC-*.ttf` 自动附加 `--retire-super-ttc`） |
 | `--retire-super-ttc` | Windows 显式启用 `--retire-super-ttc` 注销 791MB `Sarasa-SuperTTC.ttc` |
 | `--skip-super-ttc-fix` | Windows 检测到 `Sarasa-SuperTTC.ttc` 时跳过自动下载替换拆分版 TTF |
-| `--latest` | 跳过锁定基线 `1ec6f3d`（`v0.8.9`），尝试直接基于上游 `HEAD` 打补丁 |
+| `--latest` | 跳过锁定基线 `ab5a41b`（`v0.8.10`），尝试直接基于上游 `HEAD` 打补丁 |
 | `--skip-tests` | 跳过打补丁后的 ContextViewer 单元测试 |
 | `--skip-verify` | 安装结束时不自动执行 `verify.mjs` |
 
@@ -128,10 +128,10 @@ node scripts/verify.mjs
 node scripts/verify.mjs --skip-cdp
 ```
 
-如需在已打补丁的 `antigravity-context-viewer` 目录单独复现核心单元测试（**238 项全通过**）：
+如需在已打补丁的 `antigravity-context-viewer` 目录单独复现核心单元测试（**245 项全通过**）：
 
 ```bash
-node --test meter-core.test.js meter-renderer.test.js meter-integration.test.js meter-v083-fixes.test.js meter-hotload.test.js meter-elv91-speed.test.js meter-v089-usage.test.js
+node --test meter-core.test.js meter-renderer.test.js meter-integration.test.js meter-v083-fixes.test.js meter-hotload.test.js meter-elv91-speed.test.js meter-v089-usage.test.js meter-v234-compat.test.js
 ```
 
 > 被覆盖的用户配置和旧脚本会自动备份至 `<STATE_DIR>/backups/skill-setup/`。若需卸载，停止双守护进程并卸载船板后重启或重载 Antigravity 即可恢复原版界面。
