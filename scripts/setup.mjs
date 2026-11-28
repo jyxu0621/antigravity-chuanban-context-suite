@@ -13,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync, spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { getGoMemLimitStatus, setGoMemLimit, unsetGoMemLimit } from './go-mem-limit.mjs';
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
@@ -52,6 +53,7 @@ const SKIP_SUPER_TTC_FIX = process.argv.includes('--skip-super-ttc-fix');
 const RETIRE_SUPER_TTC = process.argv.includes('--retire-super-ttc');
 const DRY_RUN = process.argv.includes('--dry-run');
 const FONTS_FROM = getArg('--fonts-from', null);
+const GO_MEM_LIMIT = getArg('--go-mem-limit', null);
 
 function resolveStateDir() {
   if (process.env.AG_METER_STATE_DIR) return process.env.AG_METER_STATE_DIR;
@@ -756,7 +758,7 @@ function waitForLiveGuardianPid(stateDir, maxWaitMs = 4500) {
 }
 
 function deployGuardianAndAutostart(stateDir, backupDir) {
-  console.log('[4/5] Deploying ContextMeter v0.8.10 (slim) + Chuanban v6.0.2 (Antigravity 2.34.0+) CDP daemon & OS autostart...');
+  console.log('[4/5] Deploying ContextMeter v0.8.10 (slim) + Chuanban v6.0.7 (Antigravity 2.36.0+) CDP daemon & OS autostart...');
   const scriptsDir = path.join(os.homedir(), '.gemini', 'antigravity', 'scripts');
   fs.mkdirSync(scriptsDir, { recursive: true });
 
@@ -900,6 +902,26 @@ async function main() {
   configureStateAndCheckAsar(viewerDir, stateDir);
   installChuanbanTheme(themeRepoDir, backupDir);
   deployGuardianAndAutostart(stateDir, backupDir);
+
+  if (GO_MEM_LIMIT) {
+    const res =
+      String(GO_MEM_LIMIT).toLowerCase() === 'off'
+        ? unsetGoMemLimit()
+        : setGoMemLimit(GO_MEM_LIMIT);
+    if (!res.ok) {
+      throw new Error(`Failed to configure GOMEMLIMIT (${GO_MEM_LIMIT}): ${res.error}`);
+    }
+    console.log(
+      `      [GOMEMLIMIT] ${res.action === 'unset' ? 'Removed user GOMEMLIMIT' : `Configured GOMEMLIMIT=${res.configuredValue}`} (${res.note})`
+    );
+  } else {
+    const memStatus = getGoMemLimitStatus();
+    if (!memStatus.configured) {
+      console.log(
+        `      [TIP] Optional Go language_server memory cap not set. To cap RAM gently, run: node scripts/go-mem-limit.mjs --set ${memStatus.recommendedValue}`
+      );
+    }
+  }
 
   if (!SKIP_VERIFY) {
     console.log('[5/5] Waiting for daemon warmup & verifying live state...');

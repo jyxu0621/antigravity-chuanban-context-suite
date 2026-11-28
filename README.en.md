@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-A **Claude-style UI beautification and localization plugin for Google Antigravity 2.x** (仿Claude风格的antigravity反重力美化插件, verified on `2.34.0+`). It integrates the **Chuanban theme patch `v6.0.2`** (eliminated `body:has()` recalc `40ms -> 2.2ms`, isolated `#ag-font-faces`, `2300x` 5-slot theme & `[EN | 中文]` switcher, proxy-aware `--auto-download` fonts with Windows UTF-16 registry hardening, single `1,940`-key localization engine, DSH-style bottom live metrics capsule, native Settings Token Analytics, high-refresh-rate GPU animation-offload CSS) with an **ultra-slim, zero-lag Antigravity ContextViewer `v0.8.10`** (Antigravity `2.34.0` CSRF auth/window loader hotfix, titlebar Context Ring + Speed capsule with pure SVG hourglass only) via pure Chrome DevTools Protocol (CDP) and self-healing loopback HTTP daemons — **without modifying official `app.asar`**.
+A **Claude-style UI beautification and localization plugin for Google Antigravity 2.x** (仿Claude风格的antigravity反重力美化插件, verified on **`2.36.0+`**). It integrates the **Chuanban theme patch `v6.0.7`** (single `2,371`-key localization engine excluding Diff `.code-line`, Follow System light/dark pairing, native Claude compact context menu, eliminated `body:has()` recalc `40ms -> 2.2ms`, isolated `#ag-font-faces`, `2300x` 5-slot theme & `[EN | 中文]` switcher, R2/GitHub mirror `--auto-download` fonts with Windows UTF-16 registry hardening, DSH-style bottom live metrics capsule, native Settings Token Analytics & hot-upgrade row, high-refresh-rate GPU animation-offload CSS, plus HTTP 206 Omni Streaming File Viewer & bare-link enhancer) with an **ultra-slim, zero-lag Antigravity ContextViewer `v0.8.10`** (titlebar Context Ring + Speed capsule with pure SVG hourglass only) via pure Chrome DevTools Protocol (CDP) and self-healing loopback HTTP daemons — **without modifying official `app.asar`**.
 
 ---
 
@@ -37,12 +37,17 @@ A **Claude-style UI beautification and localization plugin for Google Antigravit
 
 This repository combines and optimizes two open-source community projects with clear ownership boundaries so they run smoothly without dual observers or background resource storms:
 
-1. **[Anarcadia/chuanban-antigravity-theme-patch](https://github.com/Anarcadia/chuanban-antigravity-theme-patch)** (`v6.0.2`)
-   - Ownership & reused components: 5-slot light/dark theme styling (`morandi` default, `absolutely` Claude warm-paper, `native`, `claude-warm`, `onyx`) with `2300x` `style.disabled` switching and `[EN | 中文]` toggle, eliminated `body:has()` full-tree recalc (`40ms -> 2.2ms`), permanent `#ag-font-faces` isolation, built-in proxy-aware `install-fonts --auto-download --retire-super-ttc` and Windows UTF-16 font registry writes, **sole `1,940`-key desktop localization engine** (`i18n: true`), self-healing bottom live metrics pill (`metrics: true`, `metricsMode: "full"`), native Settings **Token Analytics** (`tokenAnalytics: true`), Antigravity `2.33/2.34+` M1+M2 CDP opt-in relay with `cdpAutoRelaunch`, live `plugin://swarm--` iframe theme relay, host fingerprint gate, and native Windows ME-SDDL `TimeTrigger` autostart.
+1. **[Anarcadia/chuanban-antigravity-theme-patch](https://github.com/Anarcadia/chuanban-antigravity-theme-patch)** (`v6.0.7`)
+   - Ownership & reused components: 5-slot light/dark theme styling (`morandi` default, `absolutely` Claude warm-paper, `native`, `claude-warm`, `onyx`) with Follow System pairing, `2300x` `style.disabled` switching and `[EN | 中文]` toggle, native Claude compact right-click menu (`contextMenu: true`), eliminated `body:has()` full-tree recalc (`40ms -> 2.2ms`), permanent `#ag-font-faces` isolation, built-in R2/GitHub mirror proxy-aware `install-fonts --auto-download --retire-super-ttc` and Windows UTF-16 font registry writes, **sole `2,371`-key desktop localization engine** (`i18n: true`, excluding Diff `.code-line` with `[data-ag-plugin-ui]` shield), dual-mirror hot upgrade (`updateCheck: true`), WSL2 deadlock fix, self-healing bottom live metrics pill (`metrics: true`, `metricsMode: "full"`), native Settings **Token Analytics** (`tokenAnalytics: true`), Antigravity `2.33–2.36+` M1+M2 CDP opt-in relay with `cdpAutoRelaunch`, live `plugin://swarm--` iframe theme relay, host fingerprint gate, and native Windows ME-SDDL `TimeTrigger` autostart.
    - Suite adaptations ([`assets/theme-user-config.json`](assets/theme-user-config.json), [`assets/theme-user-custom.js`](assets/theme-user-custom.js), [`assets/theme-user-custom.css`](assets/theme-user-custom.css)):
      - **DSH Harness-style bottom capsule**: Event-driven wrapper around `window.__ag_render_metrics` (zero extra polling timers, leak-free `ctx.onCleanup`) formatting `#ag-live-metrics-pill` as `入 <used>/<limit> (<pct>%) · 出 <out> · <tps> tok/s · 首字 <ttft>` in `metricsMode: "full"` while preserving the native hover details card and passing through `v6.0.0+` `compact` ring mode cleanly.
      - **High-refresh-rate GPU offload CSS (`theme-user-custom.css`)**: Stops 12× `[data-agent-state-dot]` / `agentStateDot` 144Hz idle pulsing, `.shimmer-text-mask/.shimmer-text-content` GPU mask redraws, per-word streaming `span[style*="fade-in"]` WAAPI objects, decorative `.animate-pulse/.animate-ping/.animate-bounce`, and large-area `[class*="backdrop-blur"]` passes while preserving hover/click feedback.
      - **High-priority popup stacking & WebContentsView avoidance**: Promotes `#ag-context-meter` and stacking ancestors to `z-index: 2147483500` when `#panel` opens, calls `wcvBrowser.setPortalOverlayOpen(true)` (restoring cleanly on close), watches parent `childList` + capture-phase clicks, and relaxes fallback reconnect interval to `15s`.
+     - **Workbench helpers + Bare-link highlights + Omni Streaming File Viewer (zero `innerHTML`, zero polling, seamless with Chuanban `v6.0.7` context menu)**:
+       - `Alt+↑`/`Alt+↓` user-turn jump (non-editable focus only) and manual fold/unfold bars for completed `>= 48`-line code blocks (deferred while streaming);
+       - Native `CSS.highlights` zero-DOM highlighting for bare URLs & local file paths (`Ctrl/Cmd+Click` opens bare URL or launches the Omni viewer);
+       - Seamless bottom extension inside Chuanban `v6.0.7`'s native `#ag-custom-context-menu` (zero event interception): adds `⚡ Omni 流式预览` & `@reference` for files/bare paths, open/copy for bare URLs, and compact slash-command chips (`/compact`, `/plan`, `/grill-me`, `/learn`, `/goal`) + turn jump in conversation area;
+       - **Omni Streaming File Viewer**: powered by `PatchGuardian`'s existing `127.0.0.1` loopback bridge (`/omni-stat` + 10-min per-file HMAC-signed HTTP `206 Range` `/omni-stream`, fail-closed against UNC/device paths and sensitive credentials like `.ssh`/`.env`/`Cookies`/`state.vscdb`), supporting large video/audio, zoomable checkerboard images/SVG, PDF, sandboxed HTML, range-sliced filterable CSV/TSV/JSONL tables, FontFace samples, and 256 KB chunked text/logs with zero extra daemon.
 
 2. **[elviscjn-cjn/antigravity-context-viewer](https://github.com/elviscjn-cjn/antigravity-context-viewer)** (pinned verified base commit `ab5a41b7d515643fbbdd9dde8dc940e520a131b0`, `v0.8.10` — adds Antigravity `2.34.0` CSRF auth/window loader fixes while intentionally skipping the heavyweight `v0.9.x` dashboard rewrite)
    - Streamlining & optimizations ([`patches/context-viewer.patch`](patches/context-viewer.patch)):
@@ -111,6 +116,7 @@ node scripts/setup.mjs
 | `--fonts-from <dir>` | Path to downloaded Chuanban font folder passed to `install-fonts --from` (auto-adds `--retire-super-ttc` on Windows when split `SarasaUiSC-*.ttf` files are present) |
 | `--retire-super-ttc` | Explicitly pass `--retire-super-ttc` to Chuanban `install-fonts` on Windows |
 | `--skip-super-ttc-fix` | Skip automatic download/install of `Windows-Sarasa-Split-SC-TTF` when `Sarasa-SuperTTC.ttc` is active on Windows |
+| `--go-mem-limit <preset\|off>` | Optionally configure/remove user-level `GOMEMLIMIT` (`1536MiB`/`2GiB`/`2500MiB`/`3GiB`/`4GiB`/`off`) to softly cap Go `language_server` memory |
 | `--latest` | Apply the patch onto upstream `HEAD` instead of resetting to pinned commit `ab5a41b` (`v0.8.10`) |
 | `--skip-tests` | Skip `node --test` unit tests after patching `antigravity-context-viewer` |
 | `--skip-verify` | Skip final `verify.mjs` execution |
@@ -159,5 +165,7 @@ antigravity-chuanban-context-suite/
 │   └── context-viewer.patch             # Clean slim & zero-lag patch over upstream@1ec6f3d (v0.8.9)
 └── scripts/
     ├── setup.mjs                        # Cross-platform idempotent installer
-    └── verify.mjs                       # Static, daemon, /health, and live CDP verification script
+    ├── verify.mjs                       # Static, daemon, /health, and live CDP verification script
+    ├── go-mem-limit.mjs                 # Optional user-level GOMEMLIMIT soft cap helper (--status/--set/--unset)
+    └── storage-maintenance.mjs          # Read-only storage audit & move-only lossless archiver (--status/--archive/--restore)
 ```

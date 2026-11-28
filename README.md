@@ -2,7 +2,7 @@
 
 **简体中文** · [English](README.en.md)
 
-**仿Claude风格的antigravity反重力美化插件**：面向 Google Antigravity 2.x（已实测适配最新 `2.34.0+`），将 **船板暖纸主题 `v6.0.2`**（消除 `body:has()` 全树重算 `40ms -> 2.2ms`、`#ag-font-faces` 永久隔离、2300x 5 槽位主题与 `[EN | 中文]` 免重注切换、代理感知自动下载字体、单一 `1,940` 词条汉化引擎、底部 DSH 风格实时胶囊、原生设置页 Token Analytics、高刷屏 GPU 动画减负 CSS）与 **极限精简零卡顿版 ContextViewer `v0.8.10`**（含 Antigravity `2.34.0` CSRF 鉴权与窗口加载器修复，顶栏仅保留上下文进度环 + 输出速度纯 SVG 沙漏胶囊，彻底根除后台卡顿与内存飙升）通过纯 CDP + 超轻本地回环 HTTP 守护进程融合运行，**零修改官方 `app.asar`**，重启、重载窗口或客户端升级后自动重新生效。
+**仿Claude风格的antigravity反重力美化插件**：面向 Google Antigravity 2.x（已实测适配最新 **`2.36.0+`**），将 **船板暖纸主题 `v6.0.7`**（`2,371` 词条单一汉化引擎并排除 Diff `.code-line`、Follow System 跟随系统亮暗、原生紧凑右键菜单、消除 `body:has()` 全树重算 `40ms -> 2.2ms`、永久 `#ag-font-faces`、2300x 5 槽位主题切换、R2/GitHub 镜像自动下载字体、底部 DSH 实时胶囊、原生 Token Analytics、高刷屏 GPU 动画减负 CSS + Omni HTTP 206 流式检视台 & 裸链接高亮）与 **极限精简零卡顿版 ContextViewer `v0.8.10`**（顶栏仅保留上下文进度环 + 输出速度纯 SVG 沙漏胶囊，彻底根除后台卡顿与内存飙升）通过纯 CDP + 超轻本地回环 HTTP 守护进程融合运行，**零修改官方 `app.asar`**，重启、重载窗口或客户端升级后自动重新生效。
 
 ---
 
@@ -37,12 +37,17 @@
 
 本仓库整合、分工并深度优化了两个开源社区项目，避免双观察器冲突与后台资源风暴：
 
-1. **[Anarcadia/chuanban-antigravity-theme-patch](https://github.com/Anarcadia/chuanban-antigravity-theme-patch)**（船板主题补丁，已验证至 `v6.0.2`）
-   - 复用与职责：全权负责暖纸/莫兰迪/深色 5 槽位主题视觉与 `[EN | 中文]` 免重注切换、消除 `body:has()` 全树样式重算（`40ms -> 2.2ms`）、`#ag-font-faces` 永久隔离、2300x `style.disabled` 原生切换、`Google Sans Flex` × 更纱黑体排版（内置 `v6.0.2` 代理感知 `install-fonts --auto-download --retire-super-ttc` 与 Windows UTF-16 原生注册表写入）、**单一 `1,940` 词条桌面汉化引擎**（`i18n: true`）、新会话自愈底部实时指标胶囊（`metrics: true`, `metricsMode: "full"`）、原生设置页 **Token Analytics**（`tokenAnalytics: true`）、Antigravity `2.33/2.34+` 单图标 `M1+M2` CDP 接力与 `cdpAutoRelaunch`、`plugin://swarm--` 子帧实时主题同步、宿主指纹门禁及 Windows ME SDDL `TimeTrigger` 5 分钟保活计划任务。
+1. **[Anarcadia/chuanban-antigravity-theme-patch](https://github.com/Anarcadia/chuanban-antigravity-theme-patch)**（船板主题补丁，已验证至 `v6.0.7`）
+   - 复用与职责：全权负责暖纸/莫兰迪/深色 5 槽位主题与 `Follow System` 跟随系统亮暗切换、`[EN | 中文]` 免重注切换、原生仿 Claude 紧凑右键菜单（`contextMenu: true`）、消除 `body:has()` 全树样式重算（`40ms -> 2.2ms`）、`#ag-font-faces` 永久隔离、2300x `style.disabled` 原生切换、R2/GitHub 多镜像代理感知自动下载字体与 Windows UTF-16 注册表写入、**单一 `2,371` 词条桌面汉化引擎**（`i18n: true`，自动排除 Diff `.code-line` 并内置 `[data-ag-plugin-ui]` 插件护盾）、双镜像低频更新检测与一键热升级（`updateCheck: true`）、WSL2 死锁修复、新会话自愈底部实时指标胶囊（`metrics: true`, `metricsMode: "full"`）、原生设置页 **Token Analytics**（`tokenAnalytics: true`）、Antigravity `2.33–2.36+` 单图标 `M1+M2` CDP 接力与 `cdpAutoRelaunch`、`plugin://swarm--` 子帧实时主题同步及 Windows ME SDDL `TimeTrigger` 5 分钟保活计划任务。
    - 本仓库定制（[`assets/theme-user-config.json`](assets/theme-user-config.json)、[`assets/theme-user-custom.js`](assets/theme-user-custom.js)、[`assets/theme-user-custom.css`](assets/theme-user-custom.css)）：
      - **DSH Harness 风格底部胶囊**：通过事件驱动包装 `window.__ag_render_metrics`（零额外定时器、`ctx.onCleanup` 无泄漏回收），在 `metricsMode: "full"` 时将底部 `#ag-live-metrics-pill` 格式化为 `入 <used>/<limit> (<pct>%) · 出 <out> · <tps> tok/s · 首字 <ttft>`，完整保留原生悬停详情卡；若用户手动切至 `v6.0.0+` `compact` 圆环模式则自动无损透传。
      - **高刷屏 GPU 合成减负 CSS（`theme-user-custom.css`）**：关闭侧边栏 12 组 `[data-agent-state-dot]` / `agentStateDot` 144Hz 空转脉动、`.shimmer-text-mask/.shimmer-text-content` 流光蒙版重绘、流式逐词 `span[style*="fade-in"]` WAAPI 残留动画、装饰性 `.animate-pulse/.animate-ping/.animate-bounce` 与大面积 `[class*="backdrop-blur"]` 毛玻璃，同时保留全部悬停/点击交互反馈。
      - **弹窗最高层叠与原生视图穿透避让**：上下文弹窗 `#panel` 展开时自动将 `#ag-context-meter` 及层叠祖先提权至 `z-index: 2147483500` 并通知 `wcvBrowser.setPortalOverlayOpen(true)`（关闭后无损还原）；监听宿主父节点 `childList` 与捕获阶段点击事件，保底重连间隔放宽至 `15s`。
+     - **工作台效率增强 + 裸链接高亮 + Omni 超大文件流式检视台（零 `innerHTML` · 零轮询 · 与船板 `v6.0.7` 右键菜单无缝融合）**：
+       - `Alt+↑` / `Alt+↓` 轮次跳转（仅非编辑焦点生效）、已完成 `>= 48` 行长代码块手动折叠/展开（流式吐字期间自动避让、收起补偿滚动）；
+       - 基于原生 `CSS.highlights` 的**零 DOM 篡改裸链接 / 裸本地路径高亮**，`Ctrl/Cmd+点击` 纯文本裸 URL 直接打开、点击本地路径直达 Omni 检视台；
+       - 与船板 `v6.0.7` 原生 `#ag-custom-context-menu` 无缝协同追加（零事件抢夺）：命中文件药丸或裸本地路径时追加 `⚡ Omni 流式预览` 与 `📎 作为 @引用 填入`，命中裸 URL 追加打开/复制，会话空白处追加紧凑斜杠指令芯片栏（`/compact` `/plan` `/grill-me` `/learn` `/goal`）与轮次导航；
+       - **Omni 流式检视台**：复用现有 `PatchGuardian` `127.0.0.1` 回环网关新增 `POST /omni-stat` + 单文件 10 分钟 HMAC 子令牌 `GET /omni-stream`（完整支持 HTTP `206 Range`、严格拦截 UNC/设备名/`.ssh`/`.env`/`Cookies`/`state.vscdb` 等敏感凭据路径），无需额外后台进程即可流式预览超大视频/音频、透明棋盘格缩放图片与 SVG、PDF、沙盒 HTML、分片筛选 `CSV/TSV/JSONL` 表格、字体样张及 `256 KB` 分片代码/日志。
 
 2. **[elviscjn-cjn/antigravity-context-viewer](https://github.com/elviscjn-cjn/antigravity-context-viewer)**（锁定已验证基线 `v0.8.10` / `ab5a41b7d515643fbbdd9dde8dc940e520a131b0`，含 Antigravity `2.34.0` CSRF 鉴权与窗口加载器修复，理性跳过重型 `v0.9.x` 大仪表盘重构）
    - 复用与极限精简（[`patches/context-viewer.patch`](patches/context-viewer.patch)）：
@@ -112,6 +117,7 @@ node scripts/setup.mjs
 | `--fonts-from <目录>` | 指定下载好的船板字体文件夹，传递给 `install-fonts --from`（Windows 检测到拆分版 `SarasaUiSC-*.ttf` 自动附加 `--retire-super-ttc`） |
 | `--retire-super-ttc` | Windows 显式启用 `--retire-super-ttc` 注销 791MB `Sarasa-SuperTTC.ttc` |
 | `--skip-super-ttc-fix` | Windows 检测到 `Sarasa-SuperTTC.ttc` 时跳过自动下载替换拆分版 TTF |
+| `--go-mem-limit <档位\|off>` | 可选配置/清除用户级 `GOMEMLIMIT`（`1536MiB`/`2GiB`/`2500MiB`/`3GiB`/`4GiB`/`off`），利用 Go 原生软上限温柔压住 `language_server` 内存 |
 | `--latest` | 跳过锁定基线 `ab5a41b`（`v0.8.10`），尝试直接基于上游 `HEAD` 打补丁 |
 | `--skip-tests` | 跳过打补丁后的 ContextViewer 单元测试 |
 | `--skip-verify` | 安装结束时不自动执行 `verify.mjs` |
@@ -160,5 +166,7 @@ antigravity-chuanban-context-suite/
 │   └── context-viewer.patch             # 基于 upstream@1ec6f3d (v0.8.9) 的极限精简与零卡顿补丁
 └── scripts/
     ├── setup.mjs                        # 跨平台幂等安装与系统自启注册脚本
-    └── verify.mjs                       # 静态 + 进程 + /health + 实时 CDP 联合验收脚本
+    ├── verify.mjs                       # 静态 + 进程 + /health + 实时 CDP 联合验收脚本
+    ├── go-mem-limit.mjs                 # 可选用户级 GOMEMLIMIT 内存软上限配置与一键撤销工具
+    └── storage-maintenance.mjs          # 只读存储体检与只移不删（可无损还原）日志/沙箱归档工具
 ```

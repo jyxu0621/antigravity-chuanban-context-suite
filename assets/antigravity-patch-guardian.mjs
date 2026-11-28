@@ -578,9 +578,224 @@ const ALLOWED_BRIDGE_ROUTES = new Set([
   '/launch-cli',
   '/modules-status',
   '/toggle-module',
-  '/open-external'
+  '/open-external',
+  '/omni-stat'
 ]);
 const routeHits = {};
+
+// ============================================================================
+// Omni 超大文件只读流式检视台（127.0.0.1 HTTP 206 Range + 单文件 HMAC 子令牌）
+// ============================================================================
+const OMNI_TOKEN_TTL_MS = 10 * 60 * 1000;
+const OMNI_MAX_TOKENS = 64;
+const omniTokenStore = new Map(); // token -> { realPath, mime, kind, expiresAt }
+
+const OMNI_MIME_MAP = {
+  '.mp4': ['video/mp4', 'video'],
+  '.m4v': ['video/mp4', 'video'],
+  '.webm': ['video/webm', 'video'],
+  '.mov': ['video/quicktime', 'video'],
+  '.mkv': ['video/x-matroska', 'video'],
+  '.mp3': ['audio/mpeg', 'audio'],
+  '.wav': ['audio/wav', 'audio'],
+  '.ogg': ['audio/ogg', 'audio'],
+  '.m4a': ['audio/mp4', 'audio'],
+  '.flac': ['audio/flac', 'audio'],
+  '.png': ['image/png', 'image'],
+  '.jpg': ['image/jpeg', 'image'],
+  '.jpeg': ['image/jpeg', 'image'],
+  '.webp': ['image/webp', 'image'],
+  '.gif': ['image/gif', 'image'],
+  '.avif': ['image/avif', 'image'],
+  '.svg': ['image/svg+xml', 'image'],
+  '.ico': ['image/x-icon', 'image'],
+  '.pdf': ['application/pdf', 'pdf'],
+  '.csv': ['text/csv; charset=utf-8', 'table'],
+  '.tsv': ['text/tab-separated-values; charset=utf-8', 'table'],
+  '.jsonl': ['application/x-ndjson; charset=utf-8', 'table'],
+  '.ndjson': ['application/x-ndjson; charset=utf-8', 'table'],
+  '.ttf': ['font/ttf', 'font'],
+  '.otf': ['font/otf', 'font'],
+  '.woff2': ['font/woff2', 'font'],
+  '.woff': ['font/woff', 'font'],
+  '.html': ['text/html; charset=utf-8', 'html'],
+  '.htm': ['text/html; charset=utf-8', 'html']
+};
+
+const OMNI_SENSITIVE_PATH_RE =
+  /(?:^|[\\/])(?:\.ssh|\.aws|\.gnupg|\.kube|id_rsa|id_ed25519|id_ecdsa|\.npmrc|\.netrc|\.pypirc|\.git-credentials|cookies|login data|local state|state\.vscdb|shadow|passwd|sam)(?:$|[\\/\.])/i;
+const OMNI_SENSITIVE_ENV_RE = /(?:^|[\\/])\.env(?:\.[a-z0-9_-]+)?$/i;
+const OMNI_WIN_RESERVED_RE = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i;
+
+function resolveOmniMime(ext) {
+  const hit = OMNI_MIME_MAP[ext];
+  if (hit) return { mime: hit[0], kind: hit[1] };
+  return { mime: 'text/plain; charset=utf-8', kind: 'text' };
+}
+
+function validateOmniLocalPath(rawInput) {
+  if (typeof rawInput !== 'string') return { ok: false, error: '路径无效' };
+  let p = rawInput.trim();
+  if (!p || p.includes('\0') || p.length > 1024) return { ok: false, error: '路径格式非法' };
+  if (/^file:\/\//i.test(p)) {
+    try {
+      const u = new URL(p);
+      p = decodeURIComponent(u.pathname);
+      if (process.platform === 'win32' && /^\/[A-Za-z]:\//.test(p)) p = p.slice(1);
+    } catch {
+      return { ok: false, error: 'file:// URI 解析失败' };
+    }
+  }
+  // 剥离尾部行号锚点 (#L123 或 :123:45)
+  p = p.replace(/#L\d+(?:-L?\d+)?$/i, '').replace(/:\d+(?::\d+)?$/, '');
+  if (p.startsWith('\\\\') || p.startsWith('//')) return { ok: false, error: '出于安全策略拒绝 UNC/网络共享路径' };
+  if (OMNI_WIN_RESERVED_RE.test(path.basename(p))) return { ok: false, error: '拒绝系统设备名路径' };
+
+  let realPath;
+  try {
+    realPath = fs.realpathSync(p);
+  } catch {
+    return { ok: false, error: '文件不存在或无读取权限' };
+  }
+  if (realPath.startsWith('\\\\') || realPath.startsWith('//')) {
+    return { ok: false, error: '解析后命中受限网络路径' };
+  }
+  if (OMNI_SENSITIVE_PATH_RE.test(realPath) || OMNI_SENSITIVE_ENV_RE.test(realPath)) {
+    return { ok: false, error: '命中敏感凭据保护策略，已拒绝预览' };
+  }
+  let stat;
+  try {
+    stat = fs.statSync(realPath);
+  } catch {
+    return { ok: false, error: '无法读取文件状态' };
+  }
+  if (!stat.isFile()) return { ok: false, error: '仅支持预览普通文件' };
+  const ext = path.extname(realPath).toLowerCase();
+  const { mime, kind } = resolveOmniMime(ext);
+  return { ok: true, realPath, name: path.basename(realPath), ext, size: stat.size, mtimeMs: stat.mtimeMs, mime, kind };
+}
+
+function issueOmniToken(entry) {
+  const now = Date.now();
+  for (const [k, v] of omniTokenStore.entries()) {
+    if (v.expiresAt <= now) omniTokenStore.delete(k);
+  }
+  while (omniTokenStore.size >= OMNI_MAX_TOKENS) {
+    const oldest = omniTokenStore.keys().next().value;
+    if (oldest) omniTokenStore.delete(oldest);
+    else break;
+  }
+  const nonce = crypto.randomBytes(12).toString('hex');
+  const sig = crypto
+    .createHmac('sha256', LIVE_SECRET)
+    .update(`${nonce}|${entry.realPath}|${now}`)
+    .digest('hex')
+    .slice(0, 24);
+  const token = `${nonce}.${sig}`;
+  omniTokenStore.set(token, {
+    realPath: entry.realPath,
+    mime: entry.mime,
+    kind: entry.kind,
+    expiresAt: now + OMNI_TOKEN_TTL_MS
+  });
+  return token;
+}
+
+function handleOmniStreamRequest(req, res) {
+  const reqUrl = new URL(req.url, `http://127.0.0.1:${livePort || 1}`);
+  const token = reqUrl.searchParams.get('t') || '';
+  const origin = req.headers.origin;
+  if (origin && activePageOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Range,Accept-Ranges,Content-Length');
+    res.setHeader('Vary', 'Origin');
+  }
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD');
+    res.setHeader('Access-Control-Allow-Headers', 'Range');
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  const grant = omniTokenStore.get(token);
+  if (!grant || grant.expiresAt <= Date.now()) {
+    if (grant) omniTokenStore.delete(token);
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Expired or invalid stream token');
+    return;
+  }
+  let stat;
+  try {
+    stat = fs.statSync(grant.realPath);
+    if (!stat.isFile()) throw new Error('not file');
+  } catch {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+
+  const total = stat.size;
+  const baseHeaders = {
+    'Content-Type': grant.mime,
+    'Accept-Ranges': 'bytes',
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'private, no-store'
+  };
+  if (grant.kind === 'html') {
+    baseHeaders['Content-Security-Policy'] = 'sandbox';
+  }
+
+  const rangeHeader = req.headers.range;
+  if (rangeHeader) {
+    const m = /^bytes=(\d*)-(\d*)$/i.exec(String(rangeHeader).trim());
+    if (!m) {
+      res.writeHead(416, { ...baseHeaders, 'Content-Range': `bytes */${total}` });
+      res.end();
+      return;
+    }
+    let start = m[1] ? Number.parseInt(m[1], 10) : 0;
+    let end = m[2] ? Number.parseInt(m[2], 10) : total - 1;
+    if (!m[1] && m[2]) {
+      const suffix = Number.parseInt(m[2], 10);
+      start = Math.max(0, total - suffix);
+      end = total - 1;
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= total || end < start) {
+      res.writeHead(416, { ...baseHeaders, 'Content-Range': `bytes */${total}` });
+      res.end();
+      return;
+    }
+    end = Math.min(end, total - 1);
+    const chunkLen = end - start + 1;
+    res.writeHead(206, {
+      ...baseHeaders,
+      'Content-Range': `bytes ${start}-${end}/${total}`,
+      'Content-Length': String(chunkLen)
+    });
+    if (req.method === 'HEAD') {
+      res.end();
+      return;
+    }
+    const stream = fs.createReadStream(grant.realPath, { start, end });
+    stream.on('error', () => {
+      try { res.destroy(); } catch {}
+    });
+    stream.pipe(res);
+    return;
+  }
+
+  res.writeHead(200, { ...baseHeaders, 'Content-Length': String(total) });
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
+  const stream = fs.createReadStream(grant.realPath);
+  stream.on('error', () => {
+    try { res.destroy(); } catch {}
+  });
+  stream.pipe(res);
+}
 
 function startLiveBridgeServer() {
   if (liveServer) return Promise.resolve(livePort);
@@ -607,6 +822,11 @@ function startLiveBridgeServer() {
             routeHits
           })
         );
+        return;
+      }
+
+      if ((req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') && req.url && req.url.startsWith('/omni-stream?')) {
+        handleOmniStreamRequest(req, res);
         return;
       }
 
@@ -643,6 +863,29 @@ function startLiveBridgeServer() {
         routeHits[req.url] = (routeHits[req.url] || 0) + 1;
         const request = await readJsonBody(req);
         res.setHeader('Content-Type', 'application/json');
+
+        if (req.url === '/omni-stat') {
+          const info = validateOmniLocalPath(request?.path || '');
+          if (!info.ok) {
+            res.end(JSON.stringify(info));
+            return;
+          }
+          const streamToken = issueOmniToken(info);
+          res.end(
+            JSON.stringify({
+              ok: true,
+              name: info.name,
+              realPath: info.realPath,
+              ext: info.ext,
+              size: info.size,
+              mtimeMs: info.mtimeMs,
+              mime: info.mime,
+              kind: info.kind,
+              streamUrl: `http://127.0.0.1:${livePort}/omni-stream?t=${encodeURIComponent(streamToken)}`
+            })
+          );
+          return;
+        }
 
         if (req.url === '/record-calls') {
           // 精简无累计 Token 热力图模式下跳过 35MB pricing_ledger_v1.json 重写，彻底根除后台磁盘与内存风暴
@@ -1127,6 +1370,7 @@ ${zhRuntimeCode}
       settings: true,
       launchCli: false,
       modules: true,
+      omni: true,
       accounts: false,
       checkUpdate: false,
       applyUpdate: false,

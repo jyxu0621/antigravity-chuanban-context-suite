@@ -46,3 +46,404 @@ span[style*="fade-in"] {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
+
+/* ============================================================================
+ * 工作台高频效率增强样式（纯静态轻量样式，0 无限动画，0 :has()）
+ * ============================================================================ */
+
+/* 长代码块折叠吸顶条与折叠态 */
+.ag-suite-code-bar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px;
+  margin-bottom: -2px;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid rgba(128, 128, 128, 0.22);
+  border-bottom: none;
+  background: var(--card, rgba(244, 242, 236, 0.96));
+  color: var(--muted-foreground, #6b7280);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.dark .ag-suite-code-bar,
+html[data-theme="dark"] .ag-suite-code-bar {
+  background: var(--card, rgba(28, 28, 32, 0.96));
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.ag-suite-code-btn {
+  padding: 1px 8px;
+  border-radius: 5px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ag-suite-code-btn:hover {
+  background: rgba(128, 128, 128, 0.14);
+}
+
+pre.ag-suite-code-collapsed {
+  max-height: 160px !important;
+  overflow: hidden !important;
+  mask-image: linear-gradient(to bottom, #000 65%, transparent) !important;
+  -webkit-mask-image: linear-gradient(to bottom, #000 65%, transparent) !important;
+}
+
+/* Alt+↑/↓ 轮次跳转短暂静态边框指示（无持续动画） */
+.ag-suite-turn-flash {
+  outline: 2px solid rgba(217, 119, 87, 0.85) !important;
+  outline-offset: 2px !important;
+}
+
+/* 右键快捷菜单 */
+.ag-suite-ctx-menu {
+  position: fixed;
+  z-index: 2147483400;
+  min-width: 210px;
+  padding: 5px;
+  border-radius: 10px;
+  border: 1px solid rgba(128, 128, 128, 0.28);
+  background: var(--popover, var(--card, #faf8f5));
+  color: var(--popover-foreground, var(--foreground, #1f2937));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  font-size: 12.5px;
+  user-select: none;
+}
+
+.dark .ag-suite-ctx-menu,
+html[data-theme="dark"] .ag-suite-ctx-menu {
+  background: var(--popover, var(--card, #1d1e22));
+  color: var(--popover-foreground, var(--foreground, #f3f4f6));
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.ag-suite-ctx-title {
+  padding: 4px 8px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.65;
+}
+
+.ag-suite-ctx-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ag-suite-ctx-item:hover {
+  background: rgba(128, 128, 128, 0.15);
+}
+
+.ag-suite-ctx-lbl {
+  font-weight: 500;
+}
+
+.ag-suite-ctx-hint {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+.ag-suite-ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgba(128, 128, 128, 0.22);
+}
+
+/* 轻量浮动提示 */
+.ag-suite-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 58px;
+  z-index: 2147483410;
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.28);
+  background: var(--popover, var(--card, #1f2024));
+  color: var(--popover-foreground, var(--foreground, #f9fafb));
+  font-size: 12px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.ag-suite-toast[data-open="1"] {
+  opacity: 0.96;
+}
+
+/* CSS.highlights 裸链接与裸本地路径零 DOM 篡改高亮 */
+::highlight(ag-suite-bare-link) {
+  text-decoration: underline dashed rgba(217, 119, 87, 0.72);
+  text-underline-offset: 2px;
+}
+
+/* 船板右键菜单底部协同芯片行 */
+.ag-suite-ctx-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+}
+
+.ag-suite-ctx-chip {
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(128, 128, 128, 0.28);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.ag-suite-ctx-chip:hover {
+  background: rgba(128, 128, 128, 0.16);
+}
+
+/* Omni 超大文件流式检视台弹窗 */
+.ag-suite-omni-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483550;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(10, 12, 16, 0.62);
+}
+
+.ag-suite-omni-dialog {
+  width: min(1080px, 92vw);
+  height: min(760px, 86vh);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: var(--card, #faf8f5);
+  color: var(--foreground, #1f2937);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.38);
+  overflow: hidden;
+}
+
+.dark .ag-suite-omni-dialog,
+html[data-theme="dark"] .ag-suite-omni-dialog {
+  background: var(--card, #1a1b1f);
+  color: var(--foreground, #f3f4f6);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.ag-suite-omni-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.22);
+}
+
+.ag-suite-omni-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ag-suite-omni-title {
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ag-suite-omni-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(128, 128, 128, 0.16);
+}
+
+.ag-suite-omni-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ag-suite-omni-chip {
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: transparent;
+  color: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.ag-suite-omni-chip:hover,
+.ag-suite-omni-chip.is-active {
+  background: rgba(217, 119, 87, 0.2);
+  border-color: rgba(217, 119, 87, 0.65);
+}
+
+.ag-suite-omni-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ag-suite-omni-media-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.ag-suite-omni-video {
+  max-width: 100%;
+  max-height: calc(100% - 38px);
+  border-radius: 6px;
+  background: #000;
+}
+
+.ag-suite-omni-audio {
+  width: min(560px, 90%);
+}
+
+.ag-suite-omni-img-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background-image:
+    linear-gradient(45deg, rgba(128, 128, 128, 0.14) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128, 128, 128, 0.14) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.14) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.14) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.ag-suite-omni-img {
+  max-width: 100%;
+  max-height: 100%;
+  transform-origin: center center;
+}
+
+.ag-suite-omni-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
+.ag-suite-omni-font-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ag-suite-omni-font-sample {
+  padding-bottom: 10px;
+  border-bottom: 1px dashed rgba(128, 128, 128, 0.25);
+  word-break: break-word;
+}
+
+.ag-suite-omni-search {
+  margin: 10px 12px 6px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+}
+
+.ag-suite-omni-table-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 0 12px 12px;
+}
+
+.ag-suite-omni-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ag-suite-omni-table th,
+.ag-suite-omni-table td {
+  padding: 5px 8px;
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  text-align: left;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ag-suite-omni-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card, #f3f1eb);
+  font-weight: 600;
+}
+
+.dark .ag-suite-omni-table thead th,
+html[data-theme="dark"] .ag-suite-omni-table thead th {
+  background: var(--card, #23242a);
+}
+
+.ag-suite-omni-text {
+  flex: 1;
+  margin: 0;
+  padding: 12px 14px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ag-suite-omni-subbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(128, 128, 128, 0.2);
+  font-size: 11.5px;
+}

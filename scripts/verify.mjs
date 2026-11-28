@@ -12,6 +12,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { execSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { getGoMemLimitStatus } from './go-mem-limit.mjs';
 
 const require = createRequire(import.meta.url);
 const SKIP_CDP = process.argv.includes('--skip-cdp');
@@ -49,7 +50,44 @@ function resolveViewerRepoDir(stateDir) {
   return null;
 }
 
-function checkDaemons() {
+function isPidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return Boolean(err && err.code === 'EPERM');
+  }
+}
+
+function readFallbackDaemonPids(stateDir, guardianHealth) {
+  const themePids = new Set();
+  const guardianPids = new Set();
+  try {
+    for (const f of fs.readdirSync(os.tmpdir())) {
+      if (!/^ag-theme-daemon-.*\.pid$/i.test(f)) continue;
+      const raw = fs.readFileSync(path.join(os.tmpdir(), f), 'utf8').trim().split(/\r?\n/)[0];
+      const pid = Number.parseInt(raw, 10);
+      if (isPidAlive(pid)) themePids.add(pid);
+    }
+  } catch {}
+  try {
+    const gFile = path.join(stateDir, 'patch-guardian.pid');
+    if (fs.existsSync(gFile)) {
+      const pid = Number.parseInt(fs.readFileSync(gFile, 'utf8').trim(), 10);
+      if (isPidAlive(pid)) guardianPids.add(pid);
+    }
+  } catch {}
+  if (guardianHealth?.ok && isPidAlive(guardianHealth.pid)) {
+    guardianPids.add(guardianHealth.pid);
+  }
+  return {
+    themeDaemonPids: Array.from(themePids),
+    patchGuardianPids: Array.from(guardianPids)
+  };
+}
+
+function checkDaemons(stateDir, guardianHealth) {
   if (process.platform === 'win32') {
     const res = spawnSync(
       'powershell.exe',
@@ -58,7 +96,7 @@ function checkDaemons() {
         '-Command',
         "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
       ],
-      { encoding: 'utf8', windowsHide: true, timeout: 5000 }
+      { encoding: 'utf8', windowsHide: true, timeout: 10000 }
     );
     let list = [];
     try {
@@ -72,10 +110,16 @@ function checkDaemons() {
           return cmd.includes(needle) && !cmd.includes('verify.mjs') && !cmd.includes('setup.mjs');
         })
         .map((p) => p.ProcessId);
-    return {
-      themeDaemonPids: findProc('antigravity-font-daemon'),
-      patchGuardianPids: findProc('antigravity-patch-guardian')
-    };
+    const themeDaemonPids = findProc('antigravity-font-daemon');
+    const patchGuardianPids = findProc('antigravity-patch-guardian');
+    if (themeDaemonPids.length === 0 || patchGuardianPids.length === 0) {
+      const fb = readFallbackDaemonPids(stateDir, guardianHealth);
+      return {
+        themeDaemonPids: themeDaemonPids.length > 0 ? themeDaemonPids : fb.themeDaemonPids,
+        patchGuardianPids: patchGuardianPids.length > 0 ? patchGuardianPids : fb.patchGuardianPids
+      };
+    }
+    return { themeDaemonPids, patchGuardianPids };
   }
   try {
     const ps = execSync('ps -ax -o pid=,command=', { encoding: 'utf8' });
@@ -280,6 +324,10 @@ async function inspectLiveCdp() {
             typeof window.__agMeterPriorityCleanup === 'function' &&
               typeof window.__ag_render_metrics === 'function'
           ),
+          workbenchEnhancerHooked:
+            (typeof window.__agSuiteWorkbenchCleanup === 'function' &&
+              typeof window.__agSuiteOpenOmni === 'function') ||
+            Boolean(document.getElementById('ag-prism-overlay-portal') || document.querySelector('.ag-cs-ctx-menu')),
           contextMeterMounted: Boolean(host && sr && badge && panel),
           speedBadgeMounted: Boolean(sr?.getElementById('badge-speed')),
           speedWaitSvgMounted: Boolean(sr?.getElementById('badge-speed-wait-svg')),
@@ -292,6 +340,7 @@ async function inspectLiveCdp() {
           liveCapabilitiesOk: Boolean(
             caps.modules === true &&
               caps.scan === true &&
+              caps.omni === true &&
               caps.quota === false &&
               caps.recordCalls === false &&
               caps.launchCli === false &&
@@ -398,9 +447,10 @@ async function main() {
   let themeCfg = null;
   try { themeCfg = JSON.parse(fs.readFileSync(themeConfig, 'utf8')); } catch {}
 
-  const daemons = checkDaemons();
   const guardianHealth = await probeGuardianHealth(stateDir);
+  const daemons = checkDaemons(stateDir, guardianHealth);
   const windowsFonts = probeWindowsFonts(home);
+  const goMemLimit = getGoMemLimitStatus();
   const cdp = SKIP_CDP ? { skipped: true } : await inspectLiveCdp();
 
   const themeConfigAdapted = Boolean(
@@ -455,6 +505,7 @@ async function main() {
         cdp.state?.chuanbanTokenAnalyticsReady === true &&
         cdp.state?.chuanbanGpuCssApplied === true &&
         cdp.state?.dshBottomPillHooked === true &&
+        cdp.state?.workbenchEnhancerHooked === true &&
         cdp.state?.contextMeterMounted === true &&
         cdp.state?.speedBadgeMounted === true &&
         cdp.state?.speedWaitSvgMounted === true &&
@@ -496,6 +547,7 @@ async function main() {
     chineseDisabledInDiskAndRuntime,
     modulesState: modulesJson?.modules || null,
     windowsFonts,
+    goMemLimit,
     daemons,
     guardianHealth,
     cdp,
